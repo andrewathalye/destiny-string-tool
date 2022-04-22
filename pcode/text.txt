@@ -17,11 +17,11 @@ The raw text file contains a header and entries
 Header is as follows:
 File_Length 0 .. 3 CONFIRMED
 Filler 4 .. 7
-Num_Entries 8 .. B
+Num_Entries 8 .. B READ
 Filler C .. 47
-Num_Strings 48 .. 4B
+Num_Strings 48 .. 4B READ
 Filler 4C .. 4F
-Offset_Meta (needs +0x60) 50 .. 53
+Offset_Meta (needs +0x60) 50 .. 53 READ
 
 String Meta is as follows: (Seek to Offset_Meta)
 Entry_Meta_Offset

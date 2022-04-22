@@ -4,6 +4,7 @@ with Ada.Streams.Stream_IO; use Ada.Streams; use Ada.Streams.Stream_IO;
 with Ada.Characters.Handling; use Ada.Characters.Handling;
 with Ada.Containers.Doubly_Linked_Lists;
 with Ada.Text_IO; use Ada.Text_IO;
+with Ada.Strings.UTF_Encoding.Wide_Wide_Strings; use Ada.Strings.UTF_Encoding.Wide_Wide_Strings;
 
 with Interfaces; use Interfaces;
 
@@ -23,12 +24,19 @@ procedure String_Tool is
 	type Ref_Header is record
 		Discard_1 : Discard_Array (0 .. 16#17#);	
 		English_Hash : String_Hash; -- 18 .. 1B
-		Unknown_1 : String_Hash; -- 1C .. 1F
+		Japanese_Hash : String_Hash; -- 1C .. 1F
 		German_Hash : String_Hash; -- 20 .. 23
-		Unknown_2 : String_Hash; -- 24 .. 27
-		Unknown_3 : String_Hash; -- 28 .. 2B
-		Spanish_Hash : String_Hash; -- 2C .. 2F
-		Discard_2 : Discard_Array (16#30# .. 16#5F#);
+		French_Hash : String_Hash; -- 24 .. 27
+		Spanish_LA_Hash : String_Hash; -- 28 .. 2B
+		Spanish_ES_Hash : String_Hash; -- 2C .. 2F
+		Italian_Hash : String_Hash; -- 30 .. 33
+		Unknown_1 : String_Hash; -- 34 .. 37
+		Unknown_2 : String_Hash; -- 38 .. 3B
+		Unknown_3 : String_Hash; -- 3C .. 3F
+		Portuguese_Hash : String_Hash; -- 40 .. 43
+		Unknown_5 : String_Hash; -- 43 .. 46
+		Unknown_6 : String_Hash; -- 47 .. 4A
+		Discard_2 : Discard_Array (16#4B# .. 16#5F#);
 		Num_Hashes : Unsigned_32; -- 60 .. 63
 		Discard_3 : Discard_Array (16#64# .. 16#6F#);
 	end record;
@@ -46,7 +54,7 @@ procedure String_Tool is
 
 	-- Stores information about Entries
 	type Meta_Header is record
-		Offset_Entry : Unsigned_64; -- 0 .. 7
+		Offset_Entry : Unsigned_64; -- 0 .. 7, add BH.Offset_Meta + num * 0x10
 		Num_Entries : Unsigned_32; -- 8 .. B
 		Discard : Discard_Array (16#C# .. 16#F#);
 	end record;
@@ -124,6 +132,26 @@ procedure String_Tool is
 		return To_Lower (O);
 	end Hex_String;
 
+	-- Decode Destiny-format Strings
+	function Decode_String (DA : Data_Array; Obf : Unsigned_16) return String is
+		S : String (DA'Range);
+	begin
+		for I in DA'Range loop
+			S (I) := Character'Val (Natural (DA (I)));
+		end loop;
+
+		declare
+			WW : Wide_Wide_String := Decode(S);
+		begin
+			Put_Line ("WW " & Natural'Image (WW'First) & Natural'Image (WW'Last));
+			Put_Line ("S " & Natural'Image (S'First) & Natural'Image (S'Last));
+			for I in WW'Range loop
+				WW (I) := Wide_Wide_Character'Val (Wide_Wide_Character'Pos (WW (I)) + Obf);
+			end loop;
+
+			return Encode (WW);
+		end;
+	end Decode_String;
 begin
 	Put_Line ("Destiny String Tool v0.2");
 
@@ -140,6 +168,7 @@ begin
 		RH : Ref_Header;
 		RF : Stream_IO.File_Type;
 		RS : Stream_Access;
+		Chosen : String_Hash;
 	begin
 		Start_Search (SE, String_Dir, "*.ref");
 		while More_Entries (SE) loop
@@ -150,46 +179,70 @@ begin
 
 			-- Read Reference File Header
 			Ref_Header'Read (RS, RH);
-			Put_Line ("Raw English Hash: " & String_Hash'Image (RH.English_Hash));
-			Put_Line ("Tentative file path: " & String_Dir & "/" & Hex_String (Package_ID (RH.English_Hash)) & "-" & Hex_String (Entry_ID (RH.English_Hash)) & ".str");
+			Chosen := RH.Unknown_6;
+			Put_Line ("Raw Chosen Hash: " & String_Hash'Image (Chosen));
+			Put_Line ("File path: " & String_Dir & "/" & Hex_String (Package_ID (Chosen)) & "-" & Hex_String (Entry_ID (Chosen)) & ".str");
 			declare
-				HA : Hash_Array (1 .. Positive (RH.Num_Hashes));
+				-- HA : Hash_Array (1 .. Positive (RH.Num_Hashes));
 				BF : Stream_IO.File_Type;
 				BS : Stream_Access;
 				BH : Bank_Header;
 			begin
-				Hash_Array'Read (RS, HA);
+				-- Hash_Array'Read (RS, HA);
 				Close (RF);
 
 				Put_Line ("[Debug] Hashes read, open BF");
 
 				-- Start handling bank file
-				Open (BF, In_File, String_Dir & "/" & Hex_String (Package_ID (RH.English_Hash)) & "-" & Hex_String (Entry_ID (RH.English_Hash)) & ".str");
+				Open (BF, In_File, String_Dir & "/" & Hex_String (Package_ID (Chosen)) & "-" & Hex_String (Entry_ID (Chosen)) & ".str");
 				BS := Stream (BF);
 				Bank_Header'Read (BS, BH);
+				BH.Offset_Meta := BH.Offset_Meta + 16#60#; -- Add 0x60 to offset meta to make it match the real meta offset
+
+				--TODO Debug print bank file info
+				Put_Line ("[Debug] File Length " & Unsigned_32'Image (BH.File_Length));
+				Put_Line ("[Debug] Num Metas " & Unsigned_32'Image (BH.Num_Metas));
+				Put_Line ("[Debug] Num Strings " & Unsigned_32'Image (BH.Num_Strings));
+				Put_Line ("[Debug] Offset Meta " & Unsigned_32'Image (BH.Offset_Meta));
+				--TODO Debug
 
 				Put_Line ("[Debug] BH read, set index and read meta");
 				Set_Index (BF, Stream_IO.Positive_Count (BH.Offset_Meta + 1));
 
 				-- Read meta headers
 				declare
-					MA : Meta_Array (1 .. Positive (BH.Num_Metas));
+					MA : Meta_Array (1 .. Natural (BH.Num_Metas));
 				begin
-					Meta_Array'Read (BS, MA);
-					Put_Line ("[Debug] Meta Array read");
+					-- Manually read in each Meta Header since Offset Entry must be adjusted
+					for M in MA'Range loop
+						Meta_Header'Read (BS, MA (M));
+						MA (M).Offset_Entry := Unsigned_64 (BH.Offset_Meta) + MA (M).Offset_Entry + Unsigned_64 ((M - 1) * 16#10#);
+						-- Note: This relies on overflowing an unsigned 64-bit integer!
+						Put_Line ("[Debug] Offset Entry " & Unsigned_64'Image (MA (1).Offset_Entry));
+						Put_Line ("[Debug] Num Entries " & Unsigned_32'Image (MA (1).Num_Entries));
+					end loop;
 
 					-- Read Entry headers (potentially multiple for each Meta Header)
 					declare
-						EA : Entries_Array (1 .. Positive (BH.Num_Metas));
+						EA : Entries_Array (1 .. Natural (BH.Num_Metas));
 						EH : Entry_Header;
 					begin
 						for M in EA'Range loop
 							Set_Index (BF, Stream_IO.Positive_Count (MA (M).Offset_Entry + 1));
 							for E in 1 .. MA (M).Num_Entries loop
 								Entry_Header'Read (BS, EH);
+								EH.Offset_String := EH.Offset_String + Unsigned_32 (Index (BF)) - 25;
 								Entry_Lists.Append (EA (M), EH);
+								-- TODO Debug print entry info
+								Put_Line ("[Debug] Offset String " & Unsigned_32'Image (EH.Offset_String));
+								Put_Line ("[Debug] Read Length " & Unsigned_16'Image (EH.Read_Length));
+								Put_Line ("[Debug] String Length " & Unsigned_16'Image (EH.String_Length));
+								Put_Line ("[Debug] Obfuscator " & Unsigned_16'Image (EH.Obfuscator));
+								-- TODO Debug
 							end loop;
 						end loop;
+
+						Put_Line ("[Debug] Entries read. Read data arrays.");
 
 						-- Print strings
 						for M in EA'Range loop
@@ -199,7 +252,7 @@ begin
 								begin
 									Set_Index (BF, Stream_IO.Positive_Count (E.Offset_String + 1));
 									Data_Array'Read (BS, DA);
-									-- Put_Line (Decode_String (DA, E.Obfuscator));
+									Put_Line (Decode_String (DA, E.Obfuscator));
 								end;
 							end loop;
 						end loop;
@@ -207,9 +260,7 @@ begin
 					end;
 				end;
 			end;
-
-
-			Close (RF);
+			--exit; -- TODO Debug
 		end loop;
 		End_Search (SE);
 	end;

@@ -170,13 +170,13 @@ procedure String_Tool is
 		when Ada.Strings.UTF_Encoding.Encoding_Error => return "[Decode Error]";
 	end Decode_String;
 begin
-	Put_Line (Standard_Error, "Destiny String Tool v0.4");
+	Put_Line (Standard_Error, "Destiny String Tool v0.5");
 
 	-- Check for sufficient arguments
 	case Argument_Count is
 		when 1 | 2 => null;
 		when others =>
-			Put_Line ("Usage: " & Command_Name & "[LANGUAGE] STRING_DIR");
+			Put_Line ("Usage: " & Command_Name & " [LANGUAGE] STRING_DIR");
 			return;
 	end case;
 	

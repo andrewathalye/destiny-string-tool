@@ -16,6 +16,9 @@ procedure String_Tool is
 	subtype String_Hash is Unsigned_32;
 	type Hash_Array is array (Positive range <>) of String_Hash;
 
+	-- Enum Type for Languages
+	type Language_Type is (English, Japanese, German, French, Spanish_LA, Spanish_ES, Italian, Portuguese, Polish, Russian, Symbols);
+
 	-- Buffers / Storage Arrays
 	type Discard_Array is array (Natural range <>) of Unsigned_8;
 	type Data_Array is array (Positive range <>) of Unsigned_8;
@@ -30,13 +33,13 @@ procedure String_Tool is
 		Spanish_LA_Hash : String_Hash; -- 28 .. 2B
 		Spanish_ES_Hash : String_Hash; -- 2C .. 2F
 		Italian_Hash : String_Hash; -- 30 .. 33
-		Unknown_1 : String_Hash; -- 34 .. 37
-		Unknown_2 : String_Hash; -- 38 .. 3B
-		Unknown_3 : String_Hash; -- 3C .. 3F
+		Symbols_Hash : String_Hash; -- 34 .. 37, believed to be Destiny icon characters
+		Unknown_2 : String_Hash; -- 38 .. 3B, appears to contain weapon manufacturer names
+		Unknown_3 : String_Hash; -- 3C .. 3F, still no idea if valid
 		Portuguese_Hash : String_Hash; -- 40 .. 43
-		Polish_Hash : String_Hash; -- 43 .. 46
-		Russian_Hash : String_Hash; -- 47 .. 4A
-		Discard_2 : Discard_Array (16#4B# .. 16#5F#);
+		Polish_Hash : String_Hash; -- 44 .. 47
+		Russian_Hash : String_Hash; -- 48 .. 4B
+		Discard_2 : Discard_Array (16#4C# .. 16#5F#);
 		Num_Hashes : Unsigned_32; -- 60 .. 63
 		Discard_3 : Discard_Array (16#64# .. 16#6F#);
 	end record;
@@ -136,10 +139,21 @@ procedure String_Tool is
 	function Decode_String (DA : Data_Array; Obf : Unsigned_16) return String is
 		S : String (DA'Range);
 	begin
+		-- Check for special Obfuscators
+		case Obf is
+			when 16#E142# => return "[Arc Kill]";
+			when 16#E13F# => return "[Solar Kill]";
+			when 16#E143# => return "[Void Kill]";
+			-- TODO: Find [Stasis Kill]
+			when others => null;	
+		end case;
+
+		-- Convert Data Array to String
 		for I in DA'Range loop
 			S (I) := Character'Val (Natural (DA (I)));
 		end loop;
-
+	
+		-- Convert String (UTF-8) to UTF-32 WW_String
 		declare
 			WW : Wide_Wide_String := Decode(S);
 		begin
@@ -149,24 +163,32 @@ procedure String_Tool is
 
 			return Encode (WW);
 		end;
+	exception
+		-- Occasionally input data can be invalid UTF-8. TODO: Add real workaround.
+		-- This primarily affects Japanese, but sometimes French as well
+		-- Please open a Pull Request or Issue if you have any insight
+		when Ada.Strings.UTF_Encoding.Encoding_Error => return "[Decode Error]";
 	end Decode_String;
 begin
-	Put_Line (Standard_Error, "Destiny String Tool v0.3");
+	Put_Line (Standard_Error, "Destiny String Tool v0.4");
 
 	-- Check for sufficient arguments
-	if Argument_Count /= 1 then
-		Put_Line ("Usage: " & Command_Name & " STRING_DIR");
-		return;
-	end if;
+	case Argument_Count is
+		when 1 | 2 => null;
+		when others =>
+			Put_Line ("Usage: " & Command_Name & "[LANGUAGE] STRING_DIR");
+			return;
+	end case;
 	
 
 	-- Main loop
 	declare
-		String_Dir : String renames Argument (1);
+		Language : String renames Argument (1);
+		String_Dir : String renames Argument (Argument_Count);
 		RH : Ref_Header;
 		RF : Stream_IO.File_Type;
 		RS : Stream_Access;
-		Chosen : String_Hash;
+		Chosen : String_Hash; -- Chosen language string hash
 	begin
 		Start_Search (SE, String_Dir, "*.ref");
 		while More_Entries (SE) loop
@@ -180,13 +202,34 @@ begin
 			if (Ref_Header'Size / 8) > Size (RF) then
 				Put_Line (Standard_Error, "[Error] Reference file too small");
 				Close (RF);
-				goto Read_Entry;
+				if More_Entries (SE) then
+					goto Read_Entry;
+				else
+					exit;
+				end if;
 			end if;
 
 			Ref_Header'Read (RS, RH);
-			Chosen := RH.English_Hash;
-			-- Put_Line ("Raw Chosen Hash: " & String_Hash'Image (Chosen));
-			-- Put_Line ("File path: " & String_Dir & "/" & Hex_String (Package_ID (Chosen)) & "-" & Hex_String (Entry_ID (Chosen)) & ".str");
+
+			-- Select language
+			if Argument_Count = 2 then
+				Chosen := (case Language_Type'Value (Language) is
+					when English => RH.English_Hash,
+					when Japanese => RH.Japanese_Hash,
+					when German => RH.German_Hash,
+					when French => RH.French_Hash,
+					when Spanish_LA => RH.Spanish_LA_Hash,
+					when Spanish_ES => RH.Spanish_ES_Hash,
+					when Italian => RH.Italian_Hash,
+					when Portuguese => RH.Portuguese_Hash,
+					when Polish => RH.Polish_Hash,
+					when Russian => RH.Russian_Hash,
+					when Symbols => RH.Symbols_Hash
+				);
+			else
+				Chosen := RH.English_Hash;
+			end if;
+
 			declare
 				HA : Hash_Array (1 .. Natural (RH.Num_Hashes));
 				BF : Stream_IO.File_Type;
@@ -196,22 +239,13 @@ begin
 				Hash_Array'Read (RS, HA);
 				Close (RF);
 
-				-- Put_Line ("[Debug] Hashes read, open BF");
-
 				-- Start handling bank file
 				Open (BF, In_File, String_Dir & "/" & Hex_String (Package_ID (Chosen)) & "-" & Hex_String (Entry_ID (Chosen)) & ".str");
 				BS := Stream (BF);
 				Bank_Header'Read (BS, BH);
 				BH.Offset_Meta := BH.Offset_Meta + 16#60#; -- Add 0x60 to offset meta to make it match the real meta offset
 
-				--TODO Debug print bank file info
-				-- Put_Line ("[Debug] File Length " & Unsigned_32'Image (BH.File_Length));
-				-- Put_Line ("[Debug] Num Metas " & Unsigned_32'Image (BH.Num_Metas));
-				-- Put_Line ("[Debug] Num Strings " & Unsigned_32'Image (BH.Num_Strings));
-				-- Put_Line ("[Debug] Offset Meta " & Unsigned_32'Image (BH.Offset_Meta));
-				--TODO Debug
-
-				-- Put_Line ("[Debug] BH read, set index and read meta");
+				-- Set index to Meta Offset
 				Set_Index (BF, Stream_IO.Positive_Count (BH.Offset_Meta + 1));
 
 				-- Read meta headers
@@ -229,16 +263,13 @@ begin
 							MA (M).Offset_Entry := Unsigned_64 (BH.Offset_Meta) + MA (M).Offset_Entry + Unsigned_64 ((M - 1) * 16#10#);
 							-- Note: This relies on overflowing an unsigned 64-bit integer!
 						end if;
-						-- Put_Line ("[Debug] Offset Entry " & Unsigned_64'Image (MA (M).Offset_Entry));
-						-- Put_Line ("[Debug] Num Entries " & Unsigned_32'Image (MA (M).Num_Entries));
 					end loop;
-
-					-- Put_Line ("[Debug] Metas read. Read entries.");
 
 					-- Read Entry headers (potentially multiple for each Meta Header)
 					declare
 						EA : Entries_Array (1 .. Natural (BH.Num_Metas));
 						EH : Entry_Header;
+						I : Positive := HA'First; -- Used as String Hash Index (Index to HA)
 					begin
 						for M in EA'Range loop
 							Set_Index (BF, Stream_IO.Positive_Count (MA (M).Offset_Entry + 1));
@@ -252,15 +283,8 @@ begin
 									EH.Offset_String := EH.Offset_String + Unsigned_32 (Index (BF)) - 25;
 									Entry_Lists.Append (EA (M), EH);
 								end if;
-								-- TODO Debug print entry info
-								-- Put_Line ("[Debug] Offset String " & Unsigned_32'Image (EH.Offset_String));
-								-- Put_Line ("[Debug] Read Length " & Unsigned_16'Image (EH.Read_Length));
-								-- Put_Line ("[Debug] Obfuscator " & Unsigned_16'Image (EH.Obfuscator));
-								-- TODO Debug
 							end loop;
 						end loop;
-
-						-- Put_Line ("[Debug] Entries read. Read data arrays.");
 
 						-- Print strings
 						for M in EA'Range loop
@@ -271,10 +295,15 @@ begin
 									if E.Read_Length > 0 then
 										Set_Index (BF, Stream_IO.Positive_Count (E.Offset_String + 1));
 										Data_Array'Read (BS, DA);
-										Put_Line (Decode_String (DA, E.Obfuscator));
+										if I <= HA'Last then
+											Put_Line (String_Hash'Image (HA (I)) & ": " & Decode_String (DA, E.Obfuscator));
+										else
+											Put_Line ("UNK" & ": " & Decode_String (DA, E.Obfuscator));
+										end if;
 									end if;
 								end;
-							end loop;
+							end loop; -- TODO: Should it go here?
+								I := I + 1; -- Increment String Hash Index
 						end loop;
 						Close (BF);
 					end;

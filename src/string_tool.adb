@@ -83,6 +83,7 @@ procedure String_Tool is
 	-- Local Variables
 	SE : Search_Type;
 	D : Directory_Entry_Type;
+	Chosen_Language : String_Hash;
 
 	-- Subprograms
 	-- Return Package ID given Hash
@@ -169,8 +170,9 @@ procedure String_Tool is
 		-- Please open a Pull Request or Issue if you have any insight
 		when Ada.Strings.UTF_Encoding.Encoding_Error => return "[Decode Error]";
 	end Decode_String;
+
 begin
-	Put_Line (Standard_Error, "Destiny String Tool v0.5");
+	Put_Line (Standard_Error, "Destiny String Tool v0.6");
 
 	-- Check for sufficient arguments
 	case Argument_Count is
@@ -188,8 +190,8 @@ begin
 		RH : Ref_Header;
 		RF : Stream_IO.File_Type;
 		RS : Stream_Access;
-		Chosen : String_Hash; -- Chosen language string hash
 	begin
+		-- Begin iterating
 		Start_Search (SE, String_Dir, "*.ref");
 		while More_Entries (SE) loop
 			<<Read_Entry>>
@@ -211,9 +213,9 @@ begin
 
 			Ref_Header'Read (RS, RH);
 
-			-- Select language
+			-- Select language hash
 			if Argument_Count = 2 then
-				Chosen := (case Language_Type'Value (Language) is
+				Chosen_Language := (case Language_Type'Value (Language) is
 					when English => RH.English_Hash,
 					when Japanese => RH.Japanese_Hash,
 					when German => RH.German_Hash,
@@ -227,21 +229,32 @@ begin
 					when Symbols => RH.Symbols_Hash
 				);
 			else
-				Chosen := RH.English_Hash;
+				Chosen_Language := RH.English_Hash;
 			end if;
-
+			
 			declare
 				HA : Hash_Array (1 .. Natural (RH.Num_Hashes));
 				BF : Stream_IO.File_Type;
 				BS : Stream_Access;
 				BH : Bank_Header;
+				-- Bank File Name
+				BN : constant String := String_Dir & "/" & Hex_String (Package_ID (Chosen_Language)) & "-" & Hex_String (Entry_ID (Chosen_Language)) & ".str";
 			begin
 				Hash_Array'Read (RS, HA);
 				Close (RF);
 
 				-- Start handling bank file
-				Open (BF, In_File, String_Dir & "/" & Hex_String (Package_ID (Chosen)) & "-" & Hex_String (Entry_ID (Chosen)) & ".str");
+				if Exists (BN) then
+					Open (BF, In_File, BN);
+				elsif More_Entries (SE) then
+					Put_Line (Standard_Error, "[Error] Unable to open string bank " & BN & ". Maybe some language packages are missing?");
+					goto Read_Entry; -- Try new reference file
+				else
+					exit;
+				end if;
+
 				BS := Stream (BF);
+
 				Bank_Header'Read (BS, BH);
 				BH.Offset_Meta := BH.Offset_Meta + 16#60#; -- Add 0x60 to offset meta to make it match the real meta offset
 

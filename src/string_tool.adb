@@ -102,11 +102,11 @@ procedure String_Tool is
 			R := (Shift_Right (Hash, 16#D#) and 16#3FF#) or 16#400#;
 		end if;
 
-		if R = 16#519# or R = 16#539# then
-			return Unsigned_16 (R + 16#400#);
-		else
-			return Unsigned_16 (R);
-		end if;
+		-- Workaround for mislabelled 5XX packages
+		case R is
+			when 16#513# | 16#514# | 16#519# | 16#539# | 16#542# => return Unsigned_16 (R + 16#400#);
+			when others => return Unsigned_16 (R);
+		end case;
 	end Package_ID;
 
 	-- Return Entry ID given Hash
@@ -167,7 +167,7 @@ procedure String_Tool is
 	end Decode_String;
 
 begin
-	Put_Line (Standard_Error, "Destiny String Tool v0.7");
+	Put_Line (Standard_Error, "Destiny String Tool v0.8");
 
 	-- Check for sufficient arguments
 	case Argument_Count is

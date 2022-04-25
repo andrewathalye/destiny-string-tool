@@ -4,6 +4,7 @@ with Ada.Streams.Stream_IO; use Ada.Streams; use Ada.Streams.Stream_IO;
 with Ada.Characters.Handling; use Ada.Characters.Handling;
 with Ada.Containers.Doubly_Linked_Lists;
 with Ada.Text_IO; use Ada.Text_IO;
+with Ada.Strings.UTF_Encoding; use Ada.Strings.UTF_Encoding;
 with Ada.Strings.UTF_Encoding.Wide_Wide_Strings; use Ada.Strings.UTF_Encoding.Wide_Wide_Strings;
 
 with Interfaces; use Interfaces;
@@ -17,11 +18,10 @@ procedure String_Tool is
 	type Hash_Array is array (Positive range <>) of String_Hash;
 
 	-- Enum Type for Languages
-	type Language_Type is (English, Japanese, German, French, Spanish_LA, Spanish_ES, Italian, Portuguese, Polish, Russian, Symbols);
+	type Language_Type is (English, Japanese, German, French, Spanish_LA, Spanish_ES, Italian, Portuguese, Polish, Russian, Korean, Chinese_Traditional, Chinese_Simplified);
 
 	-- Buffers / Storage Arrays
 	type Discard_Array is array (Natural range <>) of Unsigned_8;
-	type Data_Array is array (Positive range <>) of Unsigned_8;
 
 	-- Reference File Header: (*.ref) categorises strings by language
 	type Ref_Header is record
@@ -33,9 +33,9 @@ procedure String_Tool is
 		Spanish_LA_Hash : String_Hash; -- 28 .. 2B
 		Spanish_ES_Hash : String_Hash; -- 2C .. 2F
 		Italian_Hash : String_Hash; -- 30 .. 33
-		Symbols_Hash : String_Hash; -- 34 .. 37, believed to be Destiny icon characters
-		Unknown_2 : String_Hash; -- 38 .. 3B, appears to contain weapon manufacturer names
-		Unknown_3 : String_Hash; -- 3C .. 3F, still no idea if valid
+		Korean_Hash : String_Hash; -- 34 .. 37
+		Chinese_Traditional_Hash : String_Hash; -- 38 .. 3B
+		Chinese_Simplified_Hash : String_Hash; -- 3C .. 3F
 		Portuguese_Hash : String_Hash; -- 40 .. 43
 		Polish_Hash : String_Hash; -- 44 .. 47
 		Russian_Hash : String_Hash; -- 48 .. 4B
@@ -72,8 +72,14 @@ procedure String_Tool is
 		Read_Length : Unsigned_16; -- 14 .. 15
 		Discard_3 : Discard_Array (16#16# .. 16#17#);
 		Obfuscator : Unsigned_16; -- 18 .. 19
-		Discard_4 : Discard_Array (16#1A# .. 16#1F#);
+		Discard_4 : Unsigned_8; -- 1A
+		Decode_Mode : Unsigned_8; -- 1B, see below
+		Discard_5 : Discard_Array (16#1C# .. 16#1F#);
 	end record;
+
+	-- Decode Mode Constants
+	Decode_UTF_8 : constant Unsigned_8 := 244; -- Requires Obfuscator
+	Decode_UTF_16LE : constant Unsigned_8 := 240; -- No Obfuscator
 
 	package Entry_Lists is new Ada.Containers.Doubly_Linked_Lists (Element_Type => Entry_Header);
 
@@ -136,9 +142,8 @@ procedure String_Tool is
 		return To_Lower (O);
 	end Hex_String;
 
-	-- Decode Destiny-format Strings
-	function Decode_String (DA : Data_Array; Obf : Unsigned_16) return String is
-		S : String (DA'Range);
+	-- Decode Obfuscated UTF-8 strings
+	function Decode_String (S : String; Obf : Unsigned_16) return String is
 	begin
 		-- Check for special Obfuscators
 		case Obf is
@@ -149,11 +154,6 @@ procedure String_Tool is
 			when others => null;	
 		end case;
 
-		-- Convert Data Array to String
-		for I in DA'Range loop
-			S (I) := Character'Val (Natural (DA (I)));
-		end loop;
-	
 		-- Convert String (UTF-8) to UTF-32 WW_String
 		declare
 			WW : Wide_Wide_String := Decode(S);
@@ -164,15 +164,10 @@ procedure String_Tool is
 
 			return Encode (WW);
 		end;
-	exception
-		-- Occasionally input data can be invalid UTF-8. TODO: Add real workaround.
-		-- This primarily affects Japanese, but sometimes French as well
-		-- Please open a Pull Request or Issue if you have any insight
-		when Ada.Strings.UTF_Encoding.Encoding_Error => return "[Decode Error]";
 	end Decode_String;
 
 begin
-	Put_Line (Standard_Error, "Destiny String Tool v0.6");
+	Put_Line (Standard_Error, "Destiny String Tool v0.7");
 
 	-- Check for sufficient arguments
 	case Argument_Count is
@@ -226,12 +221,14 @@ begin
 					when Portuguese => RH.Portuguese_Hash,
 					when Polish => RH.Polish_Hash,
 					when Russian => RH.Russian_Hash,
-					when Symbols => RH.Symbols_Hash
+					when Korean => RH.Korean_Hash,
+					when Chinese_Traditional => RH.Chinese_Traditional_Hash,
+					when Chinese_Simplified => RH.Chinese_Simplified_Hash
 				);
 			else
 				Chosen_Language := RH.English_Hash;
 			end if;
-			
+
 			declare
 				HA : Hash_Array (1 .. Natural (RH.Num_Hashes));
 				BF : Stream_IO.File_Type;
@@ -250,6 +247,7 @@ begin
 					Put_Line (Standard_Error, "[Error] Unable to open string bank " & BN & ". Maybe some language packages are missing?");
 					goto Read_Entry; -- Try new reference file
 				else
+					Put_Line (Standard_Error, "[Error] Unable to open string bank " & BN & " and no more entries.");
 					exit;
 				end if;
 
@@ -302,19 +300,27 @@ begin
 						-- Print strings
 						for M in EA'Range loop
 							for E of EA (M) loop
-								declare
-									DA : Data_Array (1 .. Natural (E.Read_Length));
-								begin
-									if E.Read_Length > 0 then
-										Set_Index (BF, Stream_IO.Positive_Count (E.Offset_String + 1));
-										Data_Array'Read (BS, DA);
-										if I <= HA'Last then
-											Put_Line (String_Hash'Image (HA (I)) & ": " & Decode_String (DA, E.Obfuscator));
-										else
-											Put_Line ("UNK" & ": " & Decode_String (DA, E.Obfuscator));
-										end if;
-									end if;
-								end;
+								if E.Read_Length > 0 then
+									Set_Index (BF, Stream_IO.Positive_Count (E.Offset_String + 1));
+									case E.Decode_Mode is
+										when Decode_UTF_8 =>
+											declare
+												S : String (1 .. Natural (E.Read_Length));
+											begin
+												String'Read (BS, S);
+												Put_Line (String_Hash'Image (HA (I)) & ": " & Decode_String (S, E.Obfuscator));
+											end;
+										when Decode_UTF_16LE =>
+											declare
+												WS : UTF_16_Wide_String (1 .. Natural (E.Read_Length));
+											begin
+												UTF_16_Wide_String'Read (BS, WS);
+												Put_Line (String_Hash'Image (HA (I)) & ": " & UTF_16_Wide_String'Image (WS));
+											end;
+										when others =>
+											Put_Line (Standard_Error, String_Hash'Image (HA (I)) & ": [Decode Error]");
+									end case;
+								end if;
 							end loop; -- TODO: Should it go here?
 								I := I + 1; -- Increment String Hash Index
 						end loop;

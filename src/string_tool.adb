@@ -1,181 +1,27 @@
 with Ada.Directories; use Ada.Directories;
 with Ada.Command_Line; use Ada.Command_Line;
 with Ada.Streams.Stream_IO; use Ada.Streams; use Ada.Streams.Stream_IO;
-with Ada.Characters.Handling; use Ada.Characters.Handling;
-with Ada.Containers.Doubly_Linked_Lists;
 with Ada.Text_IO; use Ada.Text_IO;
 with Ada.Strings.UTF_Encoding; use Ada.Strings.UTF_Encoding;
 with Ada.Strings.UTF_Encoding.Wide_Wide_Strings; use Ada.Strings.UTF_Encoding.Wide_Wide_Strings;
 
 with Interfaces; use Interfaces;
 
+with Util; use Util;
+with Data_Types; use Data_Types;
+
 procedure String_Tool is
-	-- Packages
-	package Unsigned_16_IO is new Modular_IO (Num => Unsigned_16);
-
-	-- Types
-	subtype String_Hash is Unsigned_32;
-	subtype Package_Entry_Hash is Unsigned_32; -- Layout: 1000000 XXXXXXXXXXXX YYYYYYYYYYYYY, where X is used to encode Package ID (see below for interpretation) and Y to encode Entry ID (with no complications)
-
-	type Hash_Array is array (Positive range <>) of String_Hash;
-
+	
 	-- Enum Type for Languages
 	type Language_Type is (English, Japanese, German, French, Spanish_LA, Spanish_ES, Italian, Portuguese, Polish, Russian, Korean, Chinese_Traditional, Chinese_Simplified);
-
-	-- Buffers / Storage Arrays
-	type Discard_Array is array (Natural range <>) of Unsigned_8;
-
-	-- Reference File Header: (*.ref) categorises strings by language
-	type Ref_Header is record
-		File_Length : Unsigned_32; -- 0 .. 3 TODO: Determine if 64 bit value (check big endian files)
-		Discard_1 : Discard_Array (4 .. 16#17#);	
-		English_Hash : Package_Entry_Hash; -- 18 .. 1B
-		Japanese_Hash : Package_Entry_Hash; -- 1C .. 1F
-		German_Hash : Package_Entry_Hash; -- 20 .. 23
-		French_Hash : Package_Entry_Hash; -- 24 .. 27
-		Spanish_LA_Hash : Package_Entry_Hash; -- 28 .. 2B
-		Spanish_ES_Hash : Package_Entry_Hash; -- 2C .. 2F
-		Italian_Hash : Package_Entry_Hash; -- 30 .. 33
-		Korean_Hash : Package_Entry_Hash; -- 34 .. 37
-		Chinese_Traditional_Hash : Package_Entry_Hash; -- 38 .. 3B
-		Chinese_Simplified_Hash : Package_Entry_Hash; -- 3C .. 3F
-		Portuguese_Hash : Package_Entry_Hash; -- 40 .. 43
-		Polish_Hash : Package_Entry_Hash; -- 44 .. 47
-		Russian_Hash : Package_Entry_Hash; -- 48 .. 4B
-		Discard_2 : Discard_Array (16#4C# .. 16#5F#);
-		Num_Hashes : Unsigned_32; -- 60 .. 63
-		Discard_3 : Discard_Array (16#64# .. 16#6F#);
-	end record;
-
-	-- Bank File Header: (*.str) stores raw string data
-	type Bank_Header is record
-		File_Length : Unsigned_32; -- 0 .. 3
-		Discard_1 : Discard_Array (4 .. 7);
-		Num_Metas : Unsigned_32; -- 8 .. B
-		Discard_2 : Discard_Array (16#C# .. 16#47#);
-		Num_Strings : Unsigned_32; -- 48 .. 4B
-		Discard_3 : Discard_Array (16#4C# .. 16#4F#);
-		Offset_Meta : Unsigned_32; -- 50 .. 53, add 0x60
-	end record;
-
-	-- Stores information about Entries
-	type Meta_Header is record
-		Offset_Entry : Unsigned_64; -- 0 .. 7, add BH.Offset_Meta + num * 0x10
-		Num_Entries : Unsigned_32; -- 8 .. B
-		Discard : Discard_Array (16#C# .. 16#F#);
-	end record;
-
-	type Meta_Array is array (Positive range <>) of Meta_Header;
-
-	-- Stores information about an encoded string
-	type Entry_Header is record
-		Discard_1 : Discard_Array (0 .. 7);
-		Offset_String : Unsigned_32; -- 8 .. B
-		Discard_2 : Discard_Array (16#C# .. 16#13#);
-		Read_Length : Unsigned_16; -- 14 .. 15
-		Discard_3 : Discard_Array (16#16# .. 16#17#);
-		Obfuscator : Unsigned_16; -- 18 .. 19
-		Discard_4 : Unsigned_8; -- 1A
-		Decode_Mode : Unsigned_8; -- 1B, see below
-		Discard_5 : Discard_Array (16#1C# .. 16#1F#);
-	end record;
-
-	-- Decode Mode Constants
-	Decode_UTF_8 : constant Unsigned_8 := 244; -- Requires Obfuscator
-	Decode_UTF_16LE : constant Unsigned_8 := 240; -- No Obfuscator
-
-	package Entry_Lists is new Ada.Containers.Doubly_Linked_Lists (Element_Type => Entry_Header);
-
-	-- Stores list of entries for each meta
-	type Entries_Array is array (Positive range <>) of Entry_Lists.List;
-
-	-- Exceptions
-	Invalid_Package_Exception : exception;
 
 	-- Local Variables
 	SE : Search_Type;
 	D : Directory_Entry_Type;
 	Chosen_Language : Package_Entry_Hash;
 
-	-- Subprograms
-	-- Return Package ID given Hash. See above for more information
-	function Package_ID (Hash : Package_Entry_Hash) return Unsigned_16 is
-		ID : constant Unsigned_16 := Unsigned_16 (Shift_Right (Hash, 16#D#) and 16#FFF#);
-	begin
-		-- Put_Line ("[Debug] Hash ID was " & Package_Entry_Hash'Image (Hash));
-		-- Put_Line ("[Debug] Package portion was " & Unsigned_16'Image (ID));
-		if (ID and 16#800#) > 0 and (ID and 16#400#) > 0 then -- If bit 12 and 11 set, value is encoded with bit 11 unset
-			return ID and 16#BFF#;
-		elsif (ID and 16#400#) = 0 then -- If bit 11 unset, set bit 11 and unset bit 10
-			return (ID and 16#3FF#) or 16#400#;
-		elsif (ID and 16#200#) = 0 then -- If bit 11 set and bit 10 unset, value is encoded with both unset
-			return ID and 16#1FF#;
-		elsif (ID and 16#400#) > 0 then -- If bit 11 set and bit 10 set, value is encoded with bit 11 unset
-			return ID and 16#3FF#; 
-		else 
-			raise Invalid_Package_Exception with "Unknown package encoding configuration.";
-		end if;
-	end Package_ID;
-
-	-- Return Entry ID given Hash
-	function Entry_ID (Hash : Package_Entry_Hash) return Unsigned_16 is (Unsigned_16 (Hash and 16#1FFF#));
-
-	-- Print Hex String for Unsigned_16
-	function Hex_String (Num : Unsigned_16) return String is
-		S : String (1 .. 8); -- 16#XXXX#
-		First : Natural := 0;
-		Last : Natural := 0;
-		O : String (1 .. 4) := "0000"; -- XXXX
-		Pad : Natural := 0;
-	begin
-		Unsigned_16_IO.Put(S, Num, 16);
-
-		-- First is first X, last last X in XXXX, XXX, XX, or X
-		for I in S'Range loop
-			if S (I) = '#' then
-				if First = 0 then
-					First := I + 1;
-				else
-					Last := I - 1;
-				end if;
-			end if;
-		end loop;
-
-		-- Fill in only used digits to ensure consistent length
-		Pad := 3 - (Last - First);
-		for I in First .. Last loop
-			O (Pad + I - First + O'First) := S (I);
-		end loop;
-
-		return To_Lower (O);
-	end Hex_String;
-
-	-- Decode Obfuscated UTF-8 strings
-	function Decode_String (S : String; Obf : Unsigned_16) return String is
-	begin
-		-- Check for special Obfuscators
-		case Obf is
-			when 16#E142# => return "[Arc Kill]";
-			when 16#E13F# => return "[Solar Kill]";
-			when 16#E143# => return "[Void Kill]";
-			-- TODO: Find [Stasis Kill]
-			when others => null;	
-		end case;
-
-		-- Convert String (UTF-8) to UTF-32 WW_String
-		declare
-			WW : Wide_Wide_String := Decode(S);
-		begin
-			for I in WW'Range loop
-				WW (I) := Wide_Wide_Character'Val (Wide_Wide_Character'Pos (WW (I)) + Obf);
-			end loop;
-
-			return Encode (WW);
-		end;
-	end Decode_String;
-
 begin
-	Put_Line (Standard_Error, "Destiny String Tool v0.9");
+	Put_Line (Standard_Error, "Destiny String Tool v1.0");
 
 	-- Check for sufficient arguments
 	case Argument_Count is
@@ -185,7 +31,6 @@ begin
 			return;
 	end case;
 	
-
 	-- Main loop
 	declare
 		Language : String renames Argument (1);
@@ -308,25 +153,26 @@ begin
 								if E.Read_Length > 0 then
 									Set_Index (BF, Stream_IO.Positive_Count (E.Offset_String + 1));
 									case E.Decode_Mode is
-										when Decode_UTF_8 =>
+										when Decode_UTF_8 => -- UTF-8 string with cipher applied
 											declare
 												S : String (1 .. Natural (E.Read_Length));
 											begin
 												String'Read (BS, S);
-												Put_Line (String_Hash'Image (HA (I)) & ": " & Decode_String (S, E.Obfuscator));
+												Put_Line (String_Hash'Image (HA (I)) & ": " & Decipher (S, E.Obfuscator));
 											end;
-										when Decode_UTF_16LE =>
+										when Decode_UTF_16LE => -- Ordinary UTF-16LE string
 											declare
 												WS : UTF_16_Wide_String (1 .. Natural (E.Read_Length));
 											begin
 												UTF_16_Wide_String'Read (BS, WS);
 												Put_Line (String_Hash'Image (HA (I)) & ": " & Encode (Decode (WS)));
+												-- Note: GNAT currently has broken UTF-16 to UTF-8 conversion, so we first decode to UTF-32 then re-encode.
 											end;
 										when others =>
 											Put_Line (Standard_Error, String_Hash'Image (HA (I)) & ": [Decode Error]");
 									end case;
 								end if;
-							end loop; -- TODO: Should it go here?
+							end loop;
 								I := I + 1; -- Increment String Hash Index
 						end loop;
 						Close (BF);

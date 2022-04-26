@@ -15,6 +15,8 @@ procedure String_Tool is
 
 	-- Types
 	subtype String_Hash is Unsigned_32;
+	subtype Package_Entry_Hash is Unsigned_32; -- Layout: 1000000 XXXXXXXXXXXX YYYYYYYYYYYYY, where X is used to encode Package ID (see below for interpretation) and Y to encode Entry ID (with no complications)
+
 	type Hash_Array is array (Positive range <>) of String_Hash;
 
 	-- Enum Type for Languages
@@ -25,20 +27,21 @@ procedure String_Tool is
 
 	-- Reference File Header: (*.ref) categorises strings by language
 	type Ref_Header is record
-		Discard_1 : Discard_Array (0 .. 16#17#);	
-		English_Hash : String_Hash; -- 18 .. 1B
-		Japanese_Hash : String_Hash; -- 1C .. 1F
-		German_Hash : String_Hash; -- 20 .. 23
-		French_Hash : String_Hash; -- 24 .. 27
-		Spanish_LA_Hash : String_Hash; -- 28 .. 2B
-		Spanish_ES_Hash : String_Hash; -- 2C .. 2F
-		Italian_Hash : String_Hash; -- 30 .. 33
-		Korean_Hash : String_Hash; -- 34 .. 37
-		Chinese_Traditional_Hash : String_Hash; -- 38 .. 3B
-		Chinese_Simplified_Hash : String_Hash; -- 3C .. 3F
-		Portuguese_Hash : String_Hash; -- 40 .. 43
-		Polish_Hash : String_Hash; -- 44 .. 47
-		Russian_Hash : String_Hash; -- 48 .. 4B
+		File_Length : Unsigned_32; -- 0 .. 3 TODO: Determine if 64 bit value (check big endian files)
+		Discard_1 : Discard_Array (4 .. 16#17#);	
+		English_Hash : Package_Entry_Hash; -- 18 .. 1B
+		Japanese_Hash : Package_Entry_Hash; -- 1C .. 1F
+		German_Hash : Package_Entry_Hash; -- 20 .. 23
+		French_Hash : Package_Entry_Hash; -- 24 .. 27
+		Spanish_LA_Hash : Package_Entry_Hash; -- 28 .. 2B
+		Spanish_ES_Hash : Package_Entry_Hash; -- 2C .. 2F
+		Italian_Hash : Package_Entry_Hash; -- 30 .. 33
+		Korean_Hash : Package_Entry_Hash; -- 34 .. 37
+		Chinese_Traditional_Hash : Package_Entry_Hash; -- 38 .. 3B
+		Chinese_Simplified_Hash : Package_Entry_Hash; -- 3C .. 3F
+		Portuguese_Hash : Package_Entry_Hash; -- 40 .. 43
+		Polish_Hash : Package_Entry_Hash; -- 44 .. 47
+		Russian_Hash : Package_Entry_Hash; -- 48 .. 4B
 		Discard_2 : Discard_Array (16#4C# .. 16#5F#);
 		Num_Hashes : Unsigned_32; -- 60 .. 63
 		Discard_3 : Discard_Array (16#64# .. 16#6F#);
@@ -86,31 +89,36 @@ procedure String_Tool is
 	-- Stores list of entries for each meta
 	type Entries_Array is array (Positive range <>) of Entry_Lists.List;
 
+	-- Exceptions
+	Invalid_Package_Exception : exception;
+
 	-- Local Variables
 	SE : Search_Type;
 	D : Directory_Entry_Type;
-	Chosen_Language : String_Hash;
+	Chosen_Language : Package_Entry_Hash;
 
 	-- Subprograms
-	-- Return Package ID given Hash
-	function Package_ID (Hash : String_Hash) return Unsigned_16 is
-		R : Unsigned_32;
+	-- Return Package ID given Hash. See above for more information
+	function Package_ID (Hash : Package_Entry_Hash) return Unsigned_16 is
+		ID : constant Unsigned_16 := Unsigned_16 (Shift_Right (Hash, 16#D#) and 16#FFF#);
 	begin
-		if Hash < 16#80FFFFFF# then
-			R := Shift_Right (Hash, 16#D#) and 16#3FF#;
-		else
-			R := (Shift_Right (Hash, 16#D#) and 16#3FF#) or 16#400#;
+		-- Put_Line ("[Debug] Hash ID was " & Package_Entry_Hash'Image (Hash));
+		-- Put_Line ("[Debug] Package portion was " & Unsigned_16'Image (ID));
+		if (ID and 16#800#) > 0 and (ID and 16#400#) > 0 then -- If bit 12 and 11 set, value is encoded with bit 11 unset
+			return ID and 16#BFF#;
+		elsif (ID and 16#400#) = 0 then -- If bit 11 unset, set bit 11 and unset bit 10
+			return (ID and 16#3FF#) or 16#400#;
+		elsif (ID and 16#200#) = 0 then -- If bit 11 set and bit 10 unset, value is encoded with both unset
+			return ID and 16#1FF#;
+		elsif (ID and 16#400#) > 0 then -- If bit 11 set and bit 10 set, value is encoded with bit 11 unset
+			return ID and 16#3FF#; 
+		else 
+			raise Invalid_Package_Exception with "Unknown package encoding configuration.";
 		end if;
-
-		-- Workaround for mislabelled 5XX packages
-		case R is
-			when 16#513# | 16#514# | 16#519# | 16#539# | 16#542# => return Unsigned_16 (R + 16#400#);
-			when others => return Unsigned_16 (R);
-		end case;
 	end Package_ID;
 
 	-- Return Entry ID given Hash
-	function Entry_ID (Hash : String_Hash) return Unsigned_16 is (Unsigned_16 (Hash and 16#1FFF#));
+	function Entry_ID (Hash : Package_Entry_Hash) return Unsigned_16 is (Unsigned_16 (Hash and 16#1FFF#));
 
 	-- Print Hex String for Unsigned_16
 	function Hex_String (Num : Unsigned_16) return String is
@@ -167,7 +175,7 @@ procedure String_Tool is
 	end Decode_String;
 
 begin
-	Put_Line (Standard_Error, "Destiny String Tool v0.8");
+	Put_Line (Standard_Error, "Destiny String Tool v0.9");
 
 	-- Check for sufficient arguments
 	case Argument_Count is
@@ -191,7 +199,7 @@ begin
 		while More_Entries (SE) loop
 			<<Read_Entry>>
 			Get_Next_Entry (SE, D);	
-			Put_Line (Standard_Error, "[Info] Processing " & Full_Name (D));
+			-- Put_Line (Standard_Error, "[Info] Processing " & Full_Name (D));
 			Open (RF, In_File, Full_Name (D));
 			RS := Stream (RF);
 
@@ -243,11 +251,8 @@ begin
 				-- Start handling bank file
 				if Exists (BN) then
 					Open (BF, In_File, BN);
-				elsif More_Entries (SE) then
-					Put_Line (Standard_Error, "[Error] Unable to open string bank " & BN & ". Maybe some language packages are missing?");
-					goto Read_Entry; -- Try new reference file
 				else
-					Put_Line (Standard_Error, "[Error] Unable to open string bank " & BN & " and no more entries.");
+					Put_Line (Standard_Error, "[Error] Unable to open string bank " & BN);
 					exit;
 				end if;
 
@@ -266,7 +271,7 @@ begin
 					-- Manually read in each Meta Header since Offset Entry must be adjusted
 					for M in MA'Range loop
 						if Size (BF) - Index (BF) < (Meta_Header'Size / 8) - 1 then
-							Put_Line (Standard_Error, "[Error] Prematurely stopped reading metas.");	
+							-- Put_Line (Standard_Error, "[Error] Prematurely stopped reading metas.");	
 							MA (M).Offset_Entry := 0;
 							MA (M).Num_Entries := 0;
 						else
@@ -286,7 +291,7 @@ begin
 							Set_Index (BF, Stream_IO.Positive_Count (MA (M).Offset_Entry + 1));
 							for E in 1 .. MA (M).Num_Entries loop
 								if Size (BF) - Index (BF) < (Entry_Header'Size / 8) - 1 then
-									Put_Line (Standard_Error, "[Error] Prematurely stopped reading entries.");
+									-- Put_Line (Standard_Error, "[Error] Prematurely stopped reading entries.");
 									EH.Offset_String := 0;
 									EH.Read_Length := 0;
 								else
@@ -315,7 +320,7 @@ begin
 												WS : UTF_16_Wide_String (1 .. Natural (E.Read_Length));
 											begin
 												UTF_16_Wide_String'Read (BS, WS);
-												Put_Line (String_Hash'Image (HA (I)) & ": " & UTF_16_Wide_String'Image (WS));
+												Put_Line (String_Hash'Image (HA (I)) & ": " & Encode (Decode (WS)));
 											end;
 										when others =>
 											Put_Line (Standard_Error, String_Hash'Image (HA (I)) & ": [Decode Error]");

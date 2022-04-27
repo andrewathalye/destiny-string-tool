@@ -3,3 +3,7 @@
 2174902287 0913-000f.str
 2167505155 058c-0103.str
 2160654839 0247-19f7.str
+
+D1:
+Ref file is 03f6-1f9d
+Str file is 03f6-1fbe

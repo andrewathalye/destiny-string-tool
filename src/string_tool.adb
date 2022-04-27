@@ -21,21 +21,22 @@ procedure String_Tool is
 	Chosen_Language : Package_Entry_Hash;
 
 begin
-	Put_Line (Standard_Error, "Destiny String Tool v1.0");
+	Put_Line (Standard_Error, "Destiny String Tool v1.1");
 
 	-- Check for sufficient arguments
 	case Argument_Count is
-		when 1 | 2 => null;
+		when 2 | 3 => null;
 		when others =>
-			Put_Line ("Usage: " & Command_Name & " [LANGUAGE] STRING_DIR");
+			Put_Line ("Usage: " & Command_Name & " D1 | D2 [LANGUAGE] STRING_DIR");
 			return;
 	end case;
 	
 	-- Main loop
 	declare
-		Language : String renames Argument (1);
+		Mode : constant Mode_Type := Mode_Type'Value (Argument (1));
+		Language : String renames Argument (2);
 		String_Dir : String renames Argument (Argument_Count);
-		RH : Ref_Header;
+		RH : Ref_Header (Mode);
 		RF : Stream_IO.File_Type;
 		RS : Stream_Access;
 	begin
@@ -62,7 +63,7 @@ begin
 			Ref_Header'Read (RS, RH);
 
 			-- Select language hash
-			if Argument_Count = 2 then
+			if Argument_Count = 3 then
 				Chosen_Language := (case Language_Type'Value (Language) is
 					when English => RH.English_Hash,
 					when Japanese => RH.Japanese_Hash,
@@ -82,8 +83,10 @@ begin
 				Chosen_Language := RH.English_Hash;
 			end if;
 
+			-- Put_Line (RH'Image); --TODO Debug, requires GNAT2022
+
 			declare
-				HA : Hash_Array (1 .. Natural (RH.Num_Hashes));
+				HA : Hash_Array (1 .. Natural (case Mode is when d1 => RH.Num_Hashes_D1, when d2 => RH.Num_Hashes_D2));
 				BF : Stream_IO.File_Type;
 				BS : Stream_Access;
 				BH : Bank_Header;
@@ -159,6 +162,8 @@ begin
 											begin
 												String'Read (BS, S);
 												Put_Line (String_Hash'Image (HA (I)) & ": " & Decipher (S, E.Obfuscator));
+											exception
+												when Constraint_Error => Put_Line ("ERR: " & Decipher (S, E.Obfuscator));
 											end;
 										when Decode_UTF_16LE => -- Ordinary UTF-16LE string
 											declare
@@ -167,9 +172,15 @@ begin
 												UTF_16_Wide_String'Read (BS, WS);
 												Put_Line (String_Hash'Image (HA (I)) & ": " & Encode (Decode (WS)));
 												-- Note: GNAT currently has broken UTF-16 to UTF-8 conversion, so we first decode to UTF-32 then re-encode.
+											exception
+												when Constraint_Error => Put_Line ("ERR: " & Encode (Decode (WS)));
 											end;
 										when others =>
-											Put_Line (Standard_Error, String_Hash'Image (HA (I)) & ": [Decode Error]");
+											begin
+												Put_Line (Standard_Error, String_Hash'Image (HA (I)) & ": [Decode Error]");
+											exception
+												when Constraint_Error => Put_Line (Standard_Error, "ERR: [Decode Error]");
+											end;
 									end case;
 								end if;
 							end loop;

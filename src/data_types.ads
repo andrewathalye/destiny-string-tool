@@ -12,9 +12,13 @@ package Data_Types is
 	-- Unique ID for a String (generally stable through versions)
 	subtype String_Hash is Unsigned_32;
 
+	-- Mode Type
+	type Mode_Type is (d1, d2);
+
 	-- Header Types
 	-- Reference File Header: (*.ref) categorises strings by language
-	type Ref_Header is record
+	-- This changes length whenever new languages are added
+	type Ref_Header (Mode : Mode_Type) is record
 		File_Length : Unsigned_32; -- 0 .. 3 TODO: Determine if 64 bit value (check big endian files)
 		Discard_1 : Discard_Array (4 .. 16#17#);	
 		English_Hash : Package_Entry_Hash; -- 18 .. 1B
@@ -22,17 +26,26 @@ package Data_Types is
 		German_Hash : Package_Entry_Hash; -- 20 .. 23
 		French_Hash : Package_Entry_Hash; -- 24 .. 27
 		Spanish_LA_Hash : Package_Entry_Hash; -- 28 .. 2B
-		Spanish_ES_Hash : Package_Entry_Hash; -- 2C .. 2F
+		Spanish_ES_Hash : Package_Entry_Hash; -- 2C .. 2F, region-locked in D1
 		Italian_Hash : Package_Entry_Hash; -- 30 .. 33
-		Korean_Hash : Package_Entry_Hash; -- 34 .. 37
-		Chinese_Traditional_Hash : Package_Entry_Hash; -- 38 .. 3B
-		Chinese_Simplified_Hash : Package_Entry_Hash; -- 3C .. 3F
+		Korean_Hash : Package_Entry_Hash; -- 34 .. 37, region-locked in D1
+		Chinese_Traditional_Hash : Package_Entry_Hash; -- 38 .. 3B, region-locked in D1
+		Chinese_Simplified_Hash : Package_Entry_Hash; -- 3C .. 3F, region-locked in D1
 		Portuguese_Hash : Package_Entry_Hash; -- 40 .. 43
-		Polish_Hash : Package_Entry_Hash; -- 44 .. 47
-		Russian_Hash : Package_Entry_Hash; -- 48 .. 4B
-		Discard_2 : Discard_Array (16#4C# .. 16#5F#);
-		Num_Hashes : Unsigned_32; -- 60 .. 63
-		Discard_3 : Discard_Array (16#64# .. 16#6F#);
+		Polish_Hash : Package_Entry_Hash; -- 44 .. 47, region-locked in D1
+		Russian_Hash : Package_Entry_Hash; -- 48 .. 4B, does not actually exist in D1
+
+		case Mode is
+			when d1 =>
+				Discard_2_D1 : Discard_Array (16#4C# .. 16#4F#);
+				Num_Hashes_D1 : Unsigned_32; -- 50 .. 53
+				Discard_3_D1 : Discard_Array (16#54# .. 16#5F#);
+			when d2 =>
+				Discard_2_D2 : Discard_Array (16#4C# .. 16#5F#);
+				Num_Hashes_D2 : Unsigned_32; -- 60 .. 63
+				Discard_3_D2 : Discard_Array (16#64# .. 16#6F#);
+
+		end case;
 	end record;
 
 	-- Bank File Header: (*.str) stores raw string data

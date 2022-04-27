@@ -1,12 +1,7 @@
 with Ada.Strings.UTF_Encoding; use Ada.Strings.UTF_Encoding;
 with Ada.Strings.UTF_Encoding.Wide_Wide_Strings; use Ada.Strings.UTF_Encoding.Wide_Wide_Strings;
-with Ada.Text_IO; use Ada.Text_IO;
-with Ada.Characters.Handling; use Ada.Characters.Handling;
 
 package body Util is
-	-- Packages
-	package Unsigned_16_IO is new Modular_IO (Num => Unsigned_16);
-
 	-- Subprograms
 	-- Return Package ID given Hash. See data_types.ads for more information
 	function Package_ID (Hash : Package_Entry_Hash) return Unsigned_16 is
@@ -30,34 +25,15 @@ package body Util is
 	-- Return Entry ID given Hash
 	function Entry_ID (Hash : Package_Entry_Hash) return Unsigned_16 is (Unsigned_16 (Hash and 16#1FFF#));
 
-	-- Print Hex String for Unsigned_16
+	-- Print Unsigned_16 as big endian hex string
 	function Hex_String (Num : Unsigned_16) return String is
-		S : String (1 .. 8); -- 16#XXXX#
-		First : Natural := 0;
-		Last : Natural := 0;
-		O : String (1 .. 4) := "0000"; -- XXXX
-		Pad : Natural := 0;
+		-- Hex Digit Array
+		Hex_Digits : constant array (0 .. 15) of Character := ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f');
 	begin
-		Unsigned_16_IO.Put(S, Num, 16);
-
-		-- First is first X, last last X in XXXX, XXX, XX, or X
-		for I in S'Range loop
-			if S (I) = '#' then
-				if First = 0 then
-					First := I + 1;
-				else
-					Last := I - 1;
-				end if;
-			end if;
-		end loop;
-
-		-- Fill in only used digits to ensure consistent length
-		Pad := 3 - (Last - First);
-		for I in First .. Last loop
-			O (Pad + I - First + O'First) := S (I);
-		end loop;
-
-		return To_Lower (O);
+		return	(Hex_Digits (Natural (Shift_Right (Num and 16#f000#, 12))),
+			Hex_Digits (Natural (Shift_Right (Num and 16#f00#, 8))),
+			Hex_Digits (Natural (Shift_Right (Num and 16#f0#, 4))),
+			Hex_Digits (Natural (Num and 16#f#)));
 	end Hex_String;
 
 	-- Decode Obfuscated UTF-8 strings

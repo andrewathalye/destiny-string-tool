@@ -45,8 +45,9 @@ begin
 	begin
 		-- Begin iterating
 		Start_Search (SE, String_Dir, "*.ref");
+		Process_Refs :
 		while More_Entries (SE) loop
-			<<Read_Entry>>
+			<<Read_Ref>>
 			Get_Next_Entry (SE, D);
 			-- Put_Line (Standard_Error, "[Info] Processing " & Full_Name (D));
 			Open (RF, In_File, Full_Name (D));
@@ -57,9 +58,9 @@ begin
 				Put_Line (Standard_Error, "[Error] Reference file too small");
 				Close (RF);
 				if More_Entries (SE) then
-					goto Read_Entry;
+					goto Read_Ref;
 				else
-					exit;
+					exit Process_Refs;
 				end if;
 			end if;
 
@@ -109,7 +110,7 @@ begin
 					Open (BF, In_File, BN);
 				else
 					Put_Line (Standard_Error, "[Error] Unable to open string bank " & BN);
-					exit;
+					exit Process_Refs;
 				end if;
 
 				BS := Stream (BF);
@@ -126,6 +127,7 @@ begin
 					MA : Meta_Array (1 .. Natural (BH.Num_Metas));
 				begin
 					-- Manually read in each Meta Header since Offset Entry must be adjusted
+					Read_Meta :
 					for M in MA'Range loop
 						if Size (BF) - Index (BF) < (Meta_Header'Size / 8) - 1 then
 							MA (M).Offset_Entry := 0;
@@ -137,7 +139,7 @@ begin
 								+ Unsigned_64 ((M - 1) * 16#10#);
 							-- Note: This relies on overflowing an unsigned 64-bit integer!
 						end if;
-					end loop;
+					end loop Read_Meta;
 
 					-- Read Entry headers (potentially multiple for each Meta Header)
 					declare
@@ -145,6 +147,7 @@ begin
 						EH : Entry_Header;
 						I : Positive := HA'First; -- Used as String Hash Index (Index to HA)
 					begin
+						Read_Entry :
 						for M in EA'Range loop
 							Set_Index (BF, Stream_IO.Positive_Count (MA (M).Offset_Entry + 1));
 							for E in 1 .. MA (M).Num_Entries loop
@@ -157,10 +160,12 @@ begin
 									Entry_Lists.Append (EA (M), EH);
 								end if;
 							end loop;
-						end loop;
+						end loop Read_Entry;
 
 						-- Print strings
+						Process_Meta :
 						for M in EA'Range loop
+							Process_Entry :
 							for E of EA (M) loop
 								if E.Read_Length > 0 then
 									Set_Index (BF, Stream_IO.Positive_Count (E.Offset_String + 1));
@@ -200,14 +205,14 @@ begin
 											end;
 									end case;
 								end if;
-							end loop;
+							end loop Process_Entry;
 								I := I + 1; -- Increment String Hash Index
-						end loop;
+						end loop Process_Meta;
 						Close (BF);
 					end;
 				end;
 			end;
-		end loop;
+		end loop Process_Refs;
 		End_Search (SE);
 	end;
 end String_Tool;

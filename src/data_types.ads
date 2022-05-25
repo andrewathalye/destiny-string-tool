@@ -1,5 +1,6 @@
 with Interfaces; use Interfaces;
 with Ada.Containers.Doubly_Linked_Lists;
+with Ada.Streams.Stream_IO; use Ada.Streams.Stream_IO;
 
 package Data_Types is
 	-- Buffers / Storage Array
@@ -16,7 +17,7 @@ package Data_Types is
 	subtype String_Hash is Unsigned_32;
 
 	-- Mode Type
-	type Mode_Type is (d1, d2);
+	type Mode_Type is (d1, d2, d2s17);
 
 	-- Header Types
 	-- Reference File Header: (*.ref) categorises strings by language
@@ -47,7 +48,7 @@ package Data_Types is
 				Discard_2_D1 : Discard_Array (16#4C# .. 16#4F#);
 				Num_Hashes_D1 : Unsigned_32; -- 50 .. 53
 				Discard_3_D1 : Discard_Array (16#54# .. 16#5F#);
-			when d2 =>
+			when d2 | d2s17 =>
 				Discard_2_D2 : Discard_Array (16#4C# .. 16#5F#);
 				Num_Hashes_D2 : Unsigned_32; -- 60 .. 63
 				Discard_3_D2 : Discard_Array (16#64# .. 16#6F#);
@@ -56,14 +57,12 @@ package Data_Types is
 	end record;
 
 	-- Bank File Header: (*.str) stores raw string data
+	-- Cannot be read directly from Stream - use subprogram instead
 	type Bank_Header is record
-		File_Length : Unsigned_32; -- 0 .. 3
-		Discard_1 : Discard_Array (4 .. 7);
-		Num_Metas : Unsigned_32; -- 8 .. B
-		Discard_2 : Discard_Array (16#C# .. 16#47#);
-		Num_Strings : Unsigned_32; -- 48 .. 4B
-		Discard_3 : Discard_Array (16#4C# .. 16#4F#);
-		Offset_Meta : Unsigned_32; -- 50 .. 53, add 0x60
+		File_Length : Unsigned_32;
+		Num_Metas : Unsigned_32;
+		Num_Strings : Unsigned_32;
+		Offset_Meta : Unsigned_32; -- Will be processed by the procedure
 	end record;
 
 	-- Stores information about Entries
@@ -87,6 +86,7 @@ package Data_Types is
 	end record;
 
 	-- Decode Mode Constants
+	Decode_UTF_8_Clear : constant Unsigned_8 := 0; -- No Obfuscator
 	Decode_UTF_8 : constant Unsigned_8 := 244; -- Requires Obfuscator
 	Decode_UTF_16LE : constant Unsigned_8 := 240; -- No Obfuscator
 
@@ -104,4 +104,8 @@ package Data_Types is
 	-- Stores list of collected metas
 	type Meta_Array is array (Positive range <>) of Meta_Header;
 
+	-- Subprograms
+	procedure Read_Bank_Header (S : Stream_Access;
+		M : Mode_Type;
+		BH : out Bank_Header);
 end Data_Types;

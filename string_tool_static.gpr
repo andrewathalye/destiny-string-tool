@@ -8,7 +8,7 @@ project String_Tool_Static is
 		for Executable ("string_tool.adb") use "stringtool_static";
 	end Builder;
 	package Compiler is
-		for Switches ("Ada") use ("-gnatwa", "-gnatyabCefiklmnprt", "-gnatVa", "-O2");
+		for Switches ("Ada") use ("-gnatwa", "-gnatyabCefiklmnprt", "-gnatVa", "-O2", "-gnat2022");
 	end Compiler;
 
 	package Binder is

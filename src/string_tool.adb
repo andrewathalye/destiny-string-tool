@@ -24,13 +24,15 @@ procedure String_Tool is
 	Chosen_Language : Package_Entry_Hash;
 
 begin
-	Put_Line (Standard_Error, "Destiny String Tool v1.2");
+	Put_Line (Standard_Error, "Destiny String Tool v1.3");
 
 	-- Check for sufficient arguments
 	case Argument_Count is
 		when 2 | 3 => null;
 		when others =>
-			Put_Line ("Usage: " & Command_Name & " D1 | D2 [LANGUAGE] STRING_DIR");
+			Put_Line ("Usage: "
+				& Command_Name
+				& " D1 | D2 | D2S17 [LANGUAGE] STRING_DIR");
 			return;
 	end case;
 
@@ -87,12 +89,12 @@ begin
 				Chosen_Language := RH.English_Hash;
 			end if;
 
-			-- Put_Line (RH'Image); --TODO Debug, requires GNAT2022
+			-- Put_Line (RH'Image); --TODO Debug
 
 			declare
 				HA : Hash_Array (1 .. Natural (case Mode is
 					when d1 => RH.Num_Hashes_D1,
-					when d2 => RH.Num_Hashes_D2));
+					when d2 | d2s17 => RH.Num_Hashes_D2));
 				BF : Stream_IO.File_Type;
 				BS : Stream_Access;
 				BH : Bank_Header;
@@ -105,6 +107,8 @@ begin
 				Hash_Array'Read (RS, HA);
 				Close (RF);
 
+				-- Put_Line ("Reading strings from " & BN); -- TODO Debug
+
 				-- Start handling bank file
 				if Exists (BN) then
 					Open (BF, In_File, BN);
@@ -115,9 +119,9 @@ begin
 
 				BS := Stream (BF);
 
-				Bank_Header'Read (BS, BH);
-				BH.Offset_Meta := BH.Offset_Meta + 16#60#;
-					-- Add 0x60 to offset meta to make it match the real meta offset
+				Read_Bank_Header (BS, Mode, BH);
+
+				-- Put_Line (BH'Image); -- TODO Debug
 
 				-- Set index to Meta Offset
 				Set_Index (BF, Stream_IO.Positive_Count (BH.Offset_Meta + 1));
@@ -139,6 +143,8 @@ begin
 								+ Unsigned_64 ((M - 1) * 16#10#);
 							-- Note: This relies on overflowing an unsigned 64-bit integer!
 						end if;
+
+--						Put_Line (Meta_Header'Image (MA (M))); -- TODO Debug
 					end loop Read_Meta;
 
 					-- Read Entry headers (potentially multiple for each Meta Header)
@@ -159,6 +165,8 @@ begin
 									EH.Offset_String := EH.Offset_String + Unsigned_32 (Index (BF)) - 25;
 									Entry_Lists.Append (EA (M), EH);
 								end if;
+
+--								Put_Line (Entry_Header'Image (EH)); -- TODO Debug
 							end loop;
 						end loop Read_Entry;
 
@@ -170,6 +178,19 @@ begin
 								if E.Read_Length > 0 then
 									Set_Index (BF, Stream_IO.Positive_Count (E.Offset_String + 1));
 									case E.Decode_Mode is
+										when Decode_UTF_8_Clear => -- UTF-8 string
+											declare
+												S : String (1 .. Natural (E.Read_Length));
+											begin
+												String'Read (BS, S);
+												Put_Line (String_Hash'Image (HA (I))
+													& ": " & S);
+											exception
+												when Constraint_Error =>
+													Put_Line ("ERR: "
+														& S);
+											end;
+
 										when Decode_UTF_8 => -- UTF-8 string with cipher applied
 											declare
 												S : String (1 .. Natural (E.Read_Length));
@@ -182,6 +203,7 @@ begin
 													Put_Line ("ERR: "
 														& Decipher (S, E.Obfuscator));
 											end;
+
 										when Decode_UTF_16LE => -- Ordinary UTF-16LE string
 											declare
 												WS : UTF_16_Wide_String (1 .. Natural (E.Read_Length));
@@ -194,6 +216,7 @@ begin
 											exception
 												when Constraint_Error => Put_Line ("ERR: " & Encode (Decode (WS)));
 											end;
+
 										when others =>
 											begin
 												Put_Line (Standard_Error,

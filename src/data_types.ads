@@ -1,6 +1,6 @@
 with Interfaces; use Interfaces;
 with Ada.Containers.Doubly_Linked_Lists;
-with Ada.Streams.Stream_IO; use Ada.Streams.Stream_IO;
+with Ada.Streams; use Ada.Streams;
 
 package Data_Types is
 	-- Buffers / Storage Array
@@ -57,13 +57,15 @@ package Data_Types is
 	end record;
 
 	-- Bank File Header: (*.str) stores raw string data
-	-- Cannot be read directly from Stream - use subprogram instead
-	type Bank_Header is record
+	-- A custom Read attribute is provided (see body)
+	type Bank_Header (Mode : Mode_Type) is record
 		File_Length : Unsigned_32;
 		Num_Metas : Unsigned_32;
 		Num_Strings : Unsigned_32;
 		Offset_Meta : Unsigned_32; -- Will be processed by the procedure
-	end record;
+	end record
+	with
+		Read => Read_Bank_Header;
 
 	-- Stores information about Entries
 	type Meta_Header is record
@@ -105,7 +107,6 @@ package Data_Types is
 	type Meta_Array is array (Positive range <>) of Meta_Header;
 
 	-- Subprograms
-	procedure Read_Bank_Header (S : Stream_Access;
-		M : Mode_Type;
+	procedure Read_Bank_Header (S : not null access Root_Stream_Type'Class;
 		BH : out Bank_Header);
 end Data_Types;

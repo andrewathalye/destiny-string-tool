@@ -24,15 +24,15 @@ procedure String_Tool is
 	Chosen_Language : Package_Entry_Hash;
 
 begin
-	Put_Line (Standard_Error, "Destiny String Tool v1.3");
+	Put_Line (Standard_Error, "Destiny String Tool v1.4");
 
 	-- Check for sufficient arguments
 	case Argument_Count is
-		when 2 | 3 => null;
+		when 3 => null;
 		when others =>
 			Put_Line ("Usage: "
 				& Command_Name
-				& " D1 | D2 | D2S17 [LANGUAGE] STRING_DIR");
+				& " VERSION LANGUAGE STRING_DIR");
 			return;
 	end case;
 
@@ -40,7 +40,7 @@ begin
 	declare
 		Mode : constant Mode_Type := Mode_Type'Value (Argument (1));
 		Language : String renames Argument (2);
-		String_Dir : String renames Argument (Argument_Count);
+		String_Dir : String renames Argument (3);
 		RH : Ref_Header (Mode);
 		RF : Stream_IO.File_Type;
 		RS : Stream_Access;
@@ -69,25 +69,21 @@ begin
 			Ref_Header'Read (RS, RH);
 
 			-- Select language hash
-			if Argument_Count = 3 then
-				Chosen_Language := (case Language_Type'Value (Language) is
-					when English => RH.English_Hash,
-					when Japanese => RH.Japanese_Hash,
-					when German => RH.German_Hash,
-					when French => RH.French_Hash,
-					when Spanish_LA => RH.Spanish_LA_Hash,
-					when Spanish_ES => RH.Spanish_ES_Hash,
-					when Italian => RH.Italian_Hash,
-					when Portuguese => RH.Portuguese_Hash,
-					when Polish => RH.Polish_Hash,
-					when Russian => RH.Russian_Hash,
-					when Korean => RH.Korean_Hash,
-					when Chinese_Traditional => RH.Chinese_Traditional_Hash,
-					when Chinese_Simplified => RH.Chinese_Simplified_Hash
-				);
-			else
-				Chosen_Language := RH.English_Hash;
-			end if;
+			Chosen_Language := (case Language_Type'Value (Language) is
+				when English => RH.English_Hash,
+				when Japanese => RH.Japanese_Hash,
+				when German => RH.German_Hash,
+				when French => RH.French_Hash,
+				when Spanish_LA => RH.Spanish_LA_Hash,
+				when Spanish_ES => RH.Spanish_ES_Hash,
+				when Italian => RH.Italian_Hash,
+				when Portuguese => RH.Portuguese_Hash,
+				when Polish => RH.Polish_Hash,
+				when Russian => RH.Russian_Hash,
+				when Korean => RH.Korean_Hash,
+				when Chinese_Traditional => RH.Chinese_Traditional_Hash,
+				when Chinese_Simplified => RH.Chinese_Simplified_Hash
+			);
 
 			-- Put_Line (RH'Image); --TODO Debug
 
@@ -97,7 +93,8 @@ begin
 					when d2 | d2s17 => RH.Num_Hashes_D2));
 				BF : Stream_IO.File_Type;
 				BS : Stream_Access;
-				BH : Bank_Header;
+				BH : Bank_Header (Mode);
+
 				-- Bank File Name
 				BN : constant String := String_Dir
 					& "/" & Hex_String (Package_ID (Chosen_Language))
@@ -119,7 +116,7 @@ begin
 
 				BS := Stream (BF);
 
-				Read_Bank_Header (BS, Mode, BH);
+				Bank_Header'Read (BS, BH);
 
 				-- Put_Line (BH'Image); -- TODO Debug
 
@@ -139,7 +136,7 @@ begin
 						else
 							Meta_Header'Read (BS, MA (M));
 							MA (M).Offset_Entry := Unsigned_64 (BH.Offset_Meta)
-								+ MA (M).Offset_Entry
+								+ @
 								+ Unsigned_64 ((M - 1) * 16#10#);
 							-- Note: This relies on overflowing an unsigned 64-bit integer!
 						end if;
@@ -162,7 +159,7 @@ begin
 									EH.Read_Length := 0;
 								else
 									Entry_Header'Read (BS, EH);
-									EH.Offset_String := EH.Offset_String + Unsigned_32 (Index (BF)) - 25;
+									EH.Offset_String := @ + Unsigned_32 (Index (BF)) - 25;
 									Entry_Lists.Append (EA (M), EH);
 								end if;
 
@@ -229,7 +226,7 @@ begin
 									end case;
 								end if;
 							end loop Process_Entry;
-								I := I + 1; -- Increment String Hash Index
+								I := @ + 1; -- Increment String Hash Index
 						end loop Process_Meta;
 						Close (BF);
 					end;

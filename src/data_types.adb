@@ -1,6 +1,5 @@
 package body Data_Types is
-	procedure Read_Bank_Header (S : Stream_Access;
-		M : Mode_Type;
+	procedure Read_Bank_Header (S : not null access Root_Stream_Type'Class;
 		BH : out Bank_Header)
 	is
 		-- Raw Type for Bank Header : May be read directly from Stream
@@ -19,22 +18,24 @@ package body Data_Types is
 					Discard_2_D2S17 : Discard_Array (16#C# .. 16#37#);
 					Num_Strings_D2S17 : Unsigned_32; -- 38 .. 3B
 					Discard_3_D2S17 : Discard_Array (16#3C# .. 16#3F#);
-					Offset_Meta_D2S17 : Unsigned_32; -- 40 .. 43, add 0x60
+					Offset_Meta_D2S17 : Unsigned_32; -- 40 .. 43, add 0x50
 			end case;
 		end record;
 
 		-- Variables
-		RBH : Raw_Bank_Header (M);
+		RBH : Raw_Bank_Header (BH.Mode);
 	begin
 		Raw_Bank_Header'Read (S, RBH);
-		case M is
+		case BH.Mode is
 			when d1 | d2 =>
-				BH := (RBH.File_Length,
+				BH := (BH.Mode,
+					RBH.File_Length,
 					RBH.Num_Metas,
 					RBH.Num_Strings_D1D2,
 					RBH.Offset_Meta_D1D2 + 16#60#); -- Real start is 0x60 later
 			when d2s17 =>
-				BH := (RBH.File_Length,
+				BH := (BH.Mode,
+					RBH.File_Length,
 					RBH.Num_Metas,
 					RBH.Num_Strings_D2S17,
 					RBH.Offset_Meta_D2S17 + 16#50#); -- Real start is 0x50 later

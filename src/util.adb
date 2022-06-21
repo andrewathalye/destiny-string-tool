@@ -40,10 +40,10 @@ package body Util is
 			('0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 			'a', 'b', 'c', 'd', 'e', 'f');
 	begin
-		return	(Hex_Digits (Natural (Shift_Right (Num and 16#f000#, 12))),
+		return	[Hex_Digits (Natural (Shift_Right (Num and 16#f000#, 12))),
 			Hex_Digits (Natural (Shift_Right (Num and 16#f00#, 8))),
 			Hex_Digits (Natural (Shift_Right (Num and 16#f0#, 4))),
-			Hex_Digits (Natural (Num and 16#f#)));
+			Hex_Digits (Natural (Num and 16#f#))];
 	end Hex_String;
 
 	-- Decode Obfuscated UTF-8 strings

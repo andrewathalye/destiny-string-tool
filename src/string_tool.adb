@@ -12,7 +12,6 @@ with Util; use Util;
 with Data_Types; use Data_Types;
 
 procedure String_Tool is
-
 	-- Enum Type for Languages
 	type Language_Type is (English, Japanese, German, French, Spanish_LA,
 		Spanish_ES, Italian, Portuguese, Polish, Russian, Korean,
@@ -22,9 +21,10 @@ procedure String_Tool is
 	SE : Search_Type;
 	D : Directory_Entry_Type;
 	Chosen_Language : Package_Entry_Hash;
+		-- Indicates a String Bank file to read
 
 begin
-	Put_Line (Standard_Error, "Destiny String Tool v1.4");
+	Put_Line (Standard_Error, "Destiny String Tool v1.5");
 
 	-- Check for sufficient arguments
 	case Argument_Count is
@@ -59,6 +59,8 @@ begin
 			if (Ref_Header'Size / 8) > Size (RF) then
 				Put_Line (Standard_Error, "[Error] Reference file too small");
 				Close (RF);
+
+				-- If an error occurred but there are still more entries, loop back
 				if More_Entries (SE) then
 					goto Read_Ref;
 				else
@@ -85,7 +87,7 @@ begin
 				when Chinese_Simplified => RH.Chinese_Simplified_Hash
 			);
 
-			-- Put_Line (RH'Image); --TODO Debug
+--			Put_Line (RH'Image); --TODO Debug
 
 			declare
 				HA : Hash_Array (1 .. Natural (case Mode is
@@ -104,7 +106,7 @@ begin
 				Hash_Array'Read (RS, HA);
 				Close (RF);
 
-				-- Put_Line ("Reading strings from " & BN); -- TODO Debug
+--				Put_Line ("Reading strings from " & BN); -- TODO Debug
 
 				-- Start handling bank file
 				if Exists (BN) then
@@ -118,12 +120,12 @@ begin
 
 				Bank_Header'Read (BS, BH);
 
-				-- Put_Line (BH'Image); -- TODO Debug
+--				Put_Line (BH'Image); -- TODO Debug
 
-				-- Set index to Meta Offset
+				-- Set Index to Meta Offset
 				Set_Index (BF, Stream_IO.Positive_Count (BH.Offset_Meta + 1));
 
-				-- Read meta headers
+				-- Read Meta headers
 				declare
 					MA : Meta_Array (1 .. Natural (BH.Num_Metas));
 				begin
@@ -135,10 +137,11 @@ begin
 							MA (M).Num_Entries := 0;
 						else
 							Meta_Header'Read (BS, MA (M));
-							MA (M).Offset_Entry := Unsigned_64 (BH.Offset_Meta)
-								+ @
-								+ Unsigned_64 ((M - 1) * 16#10#);
+							MA (M).Offset_Entry := @
+								+ Unsigned_64 (BH.Offset_Meta)
+								+ Unsigned_64 ((M - 1) * (Meta_Header'Size / 8));
 							-- Note: This relies on overflowing an unsigned 64-bit integer!
+							-- One is subtracted from M because of Ada indexing
 						end if;
 
 --						Put_Line (Meta_Header'Image (MA (M))); -- TODO Debug
@@ -146,34 +149,53 @@ begin
 
 					-- Read Entry headers (potentially multiple for each Meta Header)
 					declare
-						EA : Entries_Array (1 .. Natural (BH.Num_Metas));
+						EA : Entries_Array (MA'Range);
+							-- Array of Entry Lists, indexed by Meta Header
 						EH : Entry_Header;
 						I : Positive := HA'First; -- Used as String Hash Index (Index to HA)
+						First_Element_Index : Stream_IO.Positive_Count;
 					begin
-						Read_Entry :
-						for M in EA'Range loop
+						-- Iterate over all Meta Headers
+						Read_Meta_References :
+						for M in MA'Range loop
+							-- Set Index to First Entry
 							Set_Index (BF, Stream_IO.Positive_Count (MA (M).Offset_Entry + 1));
+
+							-- Iterate over Entries in Meta Header
+							Read_Entry_Data :
 							for E in 1 .. MA (M).Num_Entries loop
+								-- Only process Entry if valid
 								if Size (BF) - Index (BF) < (Entry_Header'Size / 8) - 1 then
 									EH.Offset_String := 0;
 									EH.Read_Length := 0;
 								else
+									-- Store index of first Entry element
+									First_Element_Index := Index (BF);
+
 									Entry_Header'Read (BS, EH);
-									EH.Offset_String := @ + Unsigned_32 (Index (BF)) - 25;
+									EH.Offset_String := @ + Unsigned_32 (First_Element_Index) + 7;
+										-- Calculate absolute string offset
+										-- TODO: Determine why the static + 7 offset is needed
+
 									Entry_Lists.Append (EA (M), EH);
 								end if;
 
 --								Put_Line (Entry_Header'Image (EH)); -- TODO Debug
-							end loop;
-						end loop Read_Entry;
+							end loop Read_Entry_Data;
+						end loop Read_Meta_References;
 
 						-- Print strings
-						Process_Meta :
+						-- Iterate over Entry List Array
+						Process_Entry_Lists :
 						for M in EA'Range loop
+							-- For every entry in the list
 							Process_Entry :
 							for E of EA (M) loop
+								-- Filter out invalid Entries
 								if E.Read_Length > 0 then
 									Set_Index (BF, Stream_IO.Positive_Count (E.Offset_String + 1));
+
+									-- Process individual Entry
 									case E.Decode_Mode is
 										when Decode_UTF_8_Clear => -- UTF-8 string
 											declare
@@ -227,7 +249,7 @@ begin
 								end if;
 							end loop Process_Entry;
 								I := @ + 1; -- Increment String Hash Index
-						end loop Process_Meta;
+						end loop Process_Entry_Lists;
 						Close (BF);
 					end;
 				end;

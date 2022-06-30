@@ -1,4 +1,6 @@
 package body Data_Types is
+	-- Version-agnostic procedure to read a bank header
+	-- Supports definition as the Read attribute
 	procedure Read_Bank_Header (S : not null access Root_Stream_Type'Class;
 		BH : out Bank_Header)
 	is

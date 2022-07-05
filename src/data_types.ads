@@ -3,7 +3,12 @@ with Ada.Containers.Doubly_Linked_Lists;
 with Ada.Streams; use Ada.Streams;
 
 package Data_Types is
-	-- Buffers / Storage Array
+	-- Enum Type for Languages
+	type Language_Type is (English, Japanese, German, French, Spanish_LA,
+		Spanish_ES, Italian, Portuguese, Polish, Russian, Korean,
+		Chinese_Traditional, Chinese_Simplified);
+
+	-- Buffer Type
 	type Discard_Array is array (Natural range <>) of Unsigned_8;
 
 	-- Hash Types
@@ -67,7 +72,7 @@ package Data_Types is
 	with
 		Read => Read_Bank_Header;
 
-	-- Stores information about Entries
+	-- Stores information about one or more Entries
 	type Meta_Header is record
 		Offset_Entry : Unsigned_64; -- 0 .. 7, add BH.Offset_Meta + num * 0x10
 		Num_Entries : Unsigned_32; -- 8 .. B
@@ -88,25 +93,28 @@ package Data_Types is
 	end record;
 
 	-- Decode Mode Constants
+	-- Some strings require additional processing before printing.
 	Decode_UTF_8_Clear : constant Unsigned_8 := 0; -- No Obfuscator
 	Decode_UTF_8 : constant Unsigned_8 := 244; -- Requires Obfuscator
 	Decode_UTF_16LE : constant Unsigned_8 := 240; -- No Obfuscator
 
 	-- Packages
+	-- Used to store a List of Entries
 	package Entry_Lists is new Ada.Containers.Doubly_Linked_Lists
 		(Element_Type => Entry_Header);
 
 	-- Storage Types
-	-- Stores list of entries for each meta
+	-- Stores a separate List of Entries for each Meta
 	type Entries_Array is array (Positive range <>) of Entry_Lists.List;
 
-	-- Stores list of string hashes in ref file
+	-- Stores list of String Hashes in ref file
 	type Hash_Array is array (Positive range <>) of String_Hash;
 
-	-- Stores list of collected metas
+	-- Stores list of collected Metas
 	type Meta_Array is array (Positive range <>) of Meta_Header;
 
 	-- Subprograms
+	-- Version-agnostic implementation of 'Read for Bank headers
 	procedure Read_Bank_Header (S : not null access Root_Stream_Type'Class;
 		BH : out Bank_Header);
 end Data_Types;

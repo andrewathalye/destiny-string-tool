@@ -2,9 +2,9 @@ with Ada.Directories; use Ada.Directories;
 with Ada.Command_Line; use Ada.Command_Line;
 with Ada.Streams.Stream_IO; use Ada.Streams; use Ada.Streams.Stream_IO;
 with Ada.Text_IO; use Ada.Text_IO;
-with Ada.Strings.UTF_Encoding; use Ada.Strings.UTF_Encoding;
-with Ada.Strings.UTF_Encoding.Wide_Wide_Strings;
-	use Ada.Strings.UTF_Encoding.Wide_Wide_Strings;
+with Ada.Strings.UTF_Encoding.Conversions;
+	use Ada.Strings.UTF_Encoding;
+	use Ada.Strings.UTF_Encoding.Conversions;
 
 with Interfaces; use Interfaces;
 
@@ -12,11 +12,6 @@ with Util; use Util;
 with Data_Types; use Data_Types;
 
 procedure String_Tool is
-	-- Enum Type for Languages
-	type Language_Type is (English, Japanese, German, French, Spanish_LA,
-		Spanish_ES, Italian, Portuguese, Polish, Russian, Korean,
-		Chinese_Traditional, Chinese_Simplified);
-
 	-- Local Variables
 	SE : Search_Type;
 	D : Directory_Entry_Type;
@@ -24,7 +19,7 @@ procedure String_Tool is
 		-- Indicates a String Bank file to read
 
 begin
-	Put_Line (Standard_Error, "Destiny String Tool v1.5");
+	Put_Line (Standard_Error, "Destiny String Tool v1.6");
 
 	-- Check for sufficient arguments
 	case Argument_Count is
@@ -229,11 +224,9 @@ begin
 											begin
 												UTF_16_Wide_String'Read (BS, WS);
 												Put_Line (String_Hash'Image (HA (I))
-												& ": " & Encode (Decode (WS)));
-												-- Note: GNAT currently has broken UTF-16 to UTF-8 conversion,
-												-- so we first decode to UTF-32 then re-encode.
+												& ": " & Convert (WS, UTF_8));
 											exception
-												when Constraint_Error => Put_Line ("ERR: " & Encode (Decode (WS)));
+												when Constraint_Error => Put_Line ("ERR: " & Convert (WS, UTF_8));
 											end;
 
 										when others =>

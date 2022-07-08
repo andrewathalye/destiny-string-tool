@@ -25,43 +25,57 @@ package body Bank_Files is
 		-- Manually read in each Meta Header since Offset Entry must be adjusted
 		Read_Meta :
 		for M in Metas'Range loop
-			-- Produce a null Meta Header if the file does not contain one
-			if Size (Bank_File) - Index (Bank_File)
-				< (Meta_Header_Type'Size / 8) - 1
-			then
-				Metas (M).Offset_Entry := 0;
-				Metas (M).Num_Entries := 0;
-			else
-				-- Skip gaps between Meta Headers
-				Find_Meta :
-				loop
-					Meta_Header_Type'Read (Bank_Stream, Metas (M));
-
-					if Metas (M).Num_Entries /= 0 then
-						exit Find_Meta;
-					end if;
-
-					Loop_Count := @ + 1;
-
+			-- Skip gaps between Meta Headers
+			Find_Meta :
+			loop
+				-- Stop searching for Meta Headers if the whole file has been read
+				if Size (Bank_File) - Index (Bank_File)
+					< (Meta_Header_Type'Size / 8) - 1
+				then
 					if Debug then
 						Put_Line (Standard_Error,
-							"[Warning] A gap was encountered when reading Meta Headers.");
+							"[Warning] End of file reached without finding Meta Header.");
 					end if;
-				end loop Find_Meta;
 
-				Metas (M).Offset_Entry := @
-					+ Unsigned_64 (Bank_Header.Offset_Meta)
-					+ Unsigned_64 ((M + Loop_Count - 1) * (Meta_Header_Type'Size / 8));
-				-- Note: This relies on overflowing an unsigned 64-bit integer!
-				-- One is subtracted from M because of Ada indexing
-
-				Metas (M).Loop_Count := Unsigned_32 (Loop_Count);
-					-- Store loop count for later use
-				if Debug then
-					Put_Line (Meta_Header_Type'Image (Metas (M)));
+					Metas (M).Num_Entries := 0;
+						-- Ensure that Read_Entries doesn't try to process this
+					exit Read_Meta;
 				end if;
+
+				Meta_Header_Type'Read (Bank_Stream, Metas (M));
+
+				-- If this Meta Header is valid, continue
+				if Metas (M).Num_Entries /= 0 then
+					exit Find_Meta;
+				end if;
+
+				Loop_Count := @ + 1;
+
+				if Debug then
+					Put_Line (Standard_Error,
+						"[Warning] A gap was encountered when reading Meta Headers.");
+				end if;
+			end loop Find_Meta;
+
+			Metas (M).Offset_Entry := @
+				+ Unsigned_64 (Bank_Header.Offset_Meta)
+				+ Unsigned_64 ((M + Loop_Count - 1) * (Meta_Header_Type'Size / 8));
+			-- Note: This relies on overflowing an unsigned 64-bit integer!
+			-- One is subtracted from M because of Ada indexing
+
+			Metas (M).Loop_Count := Unsigned_32 (Loop_Count);
+				-- Store loop count for later use
+			if Debug then
+				Put_Line (Meta_Header_Type'Image (Metas (M)));
 			end if;
 		end loop Read_Meta;
+
+		if Debug then
+			Put_Line (
+				"[Debug] Found Entries: "
+				& Unsigned_32'Image (
+					[for M of Metas => M.Num_Entries]'Reduce ("+", 0)));
+		end if;
 
 		return Metas;
 	end Read_Metas;
@@ -83,9 +97,7 @@ package body Bank_Files is
 			-- Reference to first Entry in Meta (for offsets)
 	begin
 		if Debug then
-			Put_Line (
-				"[Debug] Reading Entries: "
-				& Natural'Image (Entries'Length));
+			Put_Line ("[Debug] Reading Entries");
 		end if;
 
 		-- Iterate over all Meta Headers

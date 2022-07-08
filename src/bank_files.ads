@@ -21,8 +21,8 @@ package Bank_Files is
 	-- Stores information about one or more Entries
 	type Meta_Header_Type is record
 		Offset_Entry : Unsigned_64; -- 0 .. 7, needs local processing
-		Num_Entries : Unsigned_32; -- 8 .. B
-		Loop_Count : Unsigned_32; -- C .. F, actually Discard, space reused.
+		Num_Entries : Unsigned_32 := 0; -- 8 .. B
+		Loop_Count : Unsigned_32 := 0; -- C .. F, actually Discard, space reused.
 	end record;
 
 	-- Stores information about an encoded string

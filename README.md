@@ -28,3 +28,13 @@ Building From Source
 To build from source, you'll need GNAT FSF >=12 and GPRBuild.  
 Run `gprbuild -Xmode=static` to produce a release build,
 or omit the mode to produce a development build (smaller and faster, but not distributable).
+
+Contributing
+------------
+
+If you believe you've found a bug, or would like to implement something yourself, please open
+an Issue or file a Pull Request. It would help immensely if you compile the String Tool with
+`-Xdebug=true` so that I can see any debug output and observe the issue. 
+
+Code written in C, C++, or Rust can be accepted, but I would prefer to keep this project primarily in
+Ada.  

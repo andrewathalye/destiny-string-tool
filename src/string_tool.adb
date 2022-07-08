@@ -2,24 +2,19 @@ with Ada.Directories; use Ada.Directories;
 with Ada.Command_Line; use Ada.Command_Line;
 with Ada.Streams.Stream_IO; use Ada.Streams; use Ada.Streams.Stream_IO;
 with Ada.Text_IO; use Ada.Text_IO;
-with Ada.Strings.UTF_Encoding.Conversions;
-	use Ada.Strings.UTF_Encoding;
-	use Ada.Strings.UTF_Encoding.Conversions;
 
-with Interfaces; use Interfaces;
-
-with Util; use Util;
-with Data_Types; use Data_Types;
+with Config; use Config;
+with Common; use Common;
+with Ref_Files; use Ref_Files;
+with Bank_Files; use Bank_Files;
+with String_Display; use String_Display;
 
 procedure String_Tool is
 	-- Local Variables
 	SE : Search_Type;
 	D : Directory_Entry_Type;
-	Chosen_Language : Package_Entry_Hash;
-		-- Indicates a String Bank file to read
-
 begin
-	Put_Line (Standard_Error, "Destiny String Tool v1.6");
+	Put_Line (Standard_Error, "Destiny String Tool v1.7");
 
 	-- Check for sufficient arguments
 	case Argument_Count is
@@ -36,9 +31,9 @@ begin
 		Mode : constant Mode_Type := Mode_Type'Value (Argument (1));
 		Language : String renames Argument (2);
 		String_Dir : String renames Argument (3);
-		RH : Ref_Header (Mode);
-		RF : Stream_IO.File_Type;
-		RS : Stream_Access;
+		Ref_Header : Ref_Header_Type (Mode);
+		Ref_File : Stream_IO.File_Type;
+		Ref_Stream : Stream_Access;
 	begin
 		-- Begin iterating
 		Start_Search (SE, String_Dir, "*.ref");
@@ -47,205 +42,85 @@ begin
 			<<Read_Ref>>
 			Get_Next_Entry (SE, D);
 			-- Put_Line (Standard_Error, "[Info] Processing " & Full_Name (D));
-			Open (RF, In_File, Full_Name (D));
-			RS := Stream (RF);
+			Open (Ref_File, In_File, Full_Name (D));
+			Ref_Stream := Stream (Ref_File);
 
-			-- Read Reference File Header
-			if (Ref_Header'Size / 8) > Size (RF) then
-				Put_Line (Standard_Error, "[Error] Reference file too small");
-				Close (RF);
-
-				-- If an error occurred but there are still more entries, loop back
-				if More_Entries (SE) then
-					goto Read_Ref;
-				else
-					exit Process_Refs;
-				end if;
+			if Debug then
+				Put_Line ("[Debug] Read Reference Header");
 			end if;
 
-			Ref_Header'Read (RS, RH);
+			-- Read Reference File Header
+			begin
+				Ref_Header_Type'Read (Ref_Stream, Ref_Header);
+			exception
+				when Ada.Streams.Stream_IO.End_Error =>
+					Put_Line (Standard_Error,
+						"[Error] Reference file too small: "
+						& Full_Name (D));
+					Close (Ref_File);
 
-			-- Select language hash
-			Chosen_Language := (case Language_Type'Value (Language) is
-				when English => RH.English_Hash,
-				when Japanese => RH.Japanese_Hash,
-				when German => RH.German_Hash,
-				when French => RH.French_Hash,
-				when Spanish_LA => RH.Spanish_LA_Hash,
-				when Spanish_ES => RH.Spanish_ES_Hash,
-				when Italian => RH.Italian_Hash,
-				when Portuguese => RH.Portuguese_Hash,
-				when Polish => RH.Polish_Hash,
-				when Russian => RH.Russian_Hash,
-				when Korean => RH.Korean_Hash,
-				when Chinese_Traditional => RH.Chinese_Traditional_Hash,
-				when Chinese_Simplified => RH.Chinese_Simplified_Hash
-			);
+					-- If an error occurred but there are still more References, loop back
+					if More_Entries (SE) then
+						goto Read_Ref;
+					else
+						exit Process_Refs;
+					end if;
+			end;
 
---			Put_Line (RH'Image); --TODO Debug
+			if Debug then
+				Put_Line (Ref_Header'Image);
+			end if;
 
 			declare
-				HA : Hash_Array (1 .. Natural (case Mode is
-					when d1 => RH.Num_Hashes_D1,
-					when d2 | d2s17 => RH.Num_Hashes_D2));
-				BF : Stream_IO.File_Type;
-				BS : Stream_Access;
-				BH : Bank_Header (Mode);
+				Hashes : Hash_Array (1 .. Positive (Ref_Header.Num_Hashes));
+				Bank_File : Stream_IO.File_Type;
+				Bank_Stream : Stream_Access;
+				Bank_Header : Bank_Header_Type (Mode);
 
 				-- Bank File Name
-				BN : constant String := String_Dir
-					& "/" & Hex_String (Package_ID (Chosen_Language))
-					& "-" & Hex_String (Entry_ID (Chosen_Language))
+				Bank_Name : constant String := String_Dir
+					& "/" & Language_Bank (Ref_Header,
+						Language_Type'Value (Language))
 					& ".str";
 			begin
-				Hash_Array'Read (RS, HA);
-				Close (RF);
+				Hash_Array'Read (Ref_Stream, Hashes);
+				Close (Ref_File);
 
---				Put_Line ("Reading strings from " & BN); -- TODO Debug
+				if Debug then
+					Put_Line (Hashes'Image);
+					Put_Line ("[Debug] Read Strings from " & Bank_Name);
+				end if;
 
 				-- Start handling bank file
-				if Exists (BN) then
-					Open (BF, In_File, BN);
-				else
-					Put_Line (Standard_Error, "[Error] Unable to open string bank " & BN);
+				if not Exists (Bank_Name) then
+					Put_Line (Standard_Error, "[Error] Unable to open string bank "
+						& Bank_Name);
 					exit Process_Refs;
 				end if;
 
-				BS := Stream (BF);
+				Open (Bank_File, In_File, Bank_Name);
+				Bank_Stream := Stream (Bank_File);
 
-				Bank_Header'Read (BS, BH);
+				Bank_Header_Type'Read (Bank_Stream, Bank_Header);
 
---				Put_Line (BH'Image); -- TODO Debug
+				if Debug then
+					Put_Line (Bank_Header'Image);
+				end if;
 
-				-- Set Index to Meta Offset
-				Set_Index (BF, Stream_IO.Positive_Count (BH.Offset_Meta + 1));
-
-				-- Read Meta headers
+				-- Read the Meta Headers and Entry Headers and print all Strings
 				declare
-					MA : Meta_Array (1 .. Natural (BH.Num_Metas));
+					Entries : constant Entry_Array := Read_Entries (
+						Read_Metas (
+							Bank_Header,
+							Bank_File,
+							Bank_Stream),
+						Bank_File,
+						Bank_Stream);
 				begin
-					-- Manually read in each Meta Header since Offset Entry must be adjusted
-					Read_Meta :
-					for M in MA'Range loop
-						if Size (BF) - Index (BF) < (Meta_Header'Size / 8) - 1 then
-							MA (M).Offset_Entry := 0;
-							MA (M).Num_Entries := 0;
-						else
-							Meta_Header'Read (BS, MA (M));
-							MA (M).Offset_Entry := @
-								+ Unsigned_64 (BH.Offset_Meta)
-								+ Unsigned_64 ((M - 1) * (Meta_Header'Size / 8));
-							-- Note: This relies on overflowing an unsigned 64-bit integer!
-							-- One is subtracted from M because of Ada indexing
-						end if;
-
---						Put_Line (Meta_Header'Image (MA (M))); -- TODO Debug
-					end loop Read_Meta;
-
-					-- Read Entry headers (potentially multiple for each Meta Header)
-					declare
-						EA : Entries_Array (MA'Range);
-							-- Array of Entry Lists, indexed by Meta Header
-						EH : Entry_Header;
-						I : Positive := HA'First; -- Used as String Hash Index (Index to HA)
-						First_Element_Index : Stream_IO.Positive_Count;
-					begin
-						-- Iterate over all Meta Headers
-						Read_Meta_References :
-						for M in MA'Range loop
-							-- Set Index to First Entry
-							Set_Index (BF, Stream_IO.Positive_Count (MA (M).Offset_Entry + 1));
-
-							-- Iterate over Entries in Meta Header
-							Read_Entry_Data :
-							for E in 1 .. MA (M).Num_Entries loop
-								-- Only process Entry if valid
-								if Size (BF) - Index (BF) < (Entry_Header'Size / 8) - 1 then
-									EH.Offset_String := 0;
-									EH.Read_Length := 0;
-								else
-									-- Store index of first Entry element
-									First_Element_Index := Index (BF);
-
-									Entry_Header'Read (BS, EH);
-									EH.Offset_String := @ + Unsigned_32 (First_Element_Index) + 7;
-										-- Calculate absolute string offset
-										-- TODO: Determine why the static + 7 offset is needed
-
-									Entry_Lists.Append (EA (M), EH);
-								end if;
-
---								Put_Line (Entry_Header'Image (EH)); -- TODO Debug
-							end loop Read_Entry_Data;
-						end loop Read_Meta_References;
-
-						-- Print strings
-						-- Iterate over Entry List Array
-						Process_Entry_Lists :
-						for M in EA'Range loop
-							-- For every entry in the list
-							Process_Entry :
-							for E of EA (M) loop
-								-- Filter out invalid Entries
-								if E.Read_Length > 0 then
-									Set_Index (BF, Stream_IO.Positive_Count (E.Offset_String + 1));
-
-									-- Process individual Entry
-									case E.Decode_Mode is
-										when Decode_UTF_8_Clear => -- UTF-8 string
-											declare
-												S : String (1 .. Natural (E.Read_Length));
-											begin
-												String'Read (BS, S);
-												Put_Line (String_Hash'Image (HA (I))
-													& ": " & S);
-											exception
-												when Constraint_Error =>
-													Put_Line ("ERR: "
-														& S);
-											end;
-
-										when Decode_UTF_8 => -- UTF-8 string with cipher applied
-											declare
-												S : String (1 .. Natural (E.Read_Length));
-											begin
-												String'Read (BS, S);
-												Put_Line (String_Hash'Image (HA (I))
-													& ": " & Decipher (S, E.Obfuscator));
-											exception
-												when Constraint_Error =>
-													Put_Line ("ERR: "
-														& Decipher (S, E.Obfuscator));
-											end;
-
-										when Decode_UTF_16LE => -- Ordinary UTF-16LE string
-											declare
-												WS : UTF_16_Wide_String (1 .. Natural (E.Read_Length));
-											begin
-												UTF_16_Wide_String'Read (BS, WS);
-												Put_Line (String_Hash'Image (HA (I))
-												& ": " & Convert (WS, UTF_8));
-											exception
-												when Constraint_Error => Put_Line ("ERR: " & Convert (WS, UTF_8));
-											end;
-
-										when others =>
-											begin
-												Put_Line (Standard_Error,
-													String_Hash'Image (HA (I)) & ": [Decode Error]");
-											exception
-												when Constraint_Error =>
-													Put_Line (Standard_Error,
-														"ERR: [Decode Error]");
-											end;
-									end case;
-								end if;
-							end loop Process_Entry;
-								I := @ + 1; -- Increment String Hash Index
-						end loop Process_Entry_Lists;
-						Close (BF);
-					end;
+					Print_Strings (Entries, Hashes, Bank_File, Bank_Stream);
 				end;
+
+				Close (Bank_File);
 			end;
 		end loop Process_Refs;
 		End_Search (SE);

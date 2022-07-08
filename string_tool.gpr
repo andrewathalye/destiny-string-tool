@@ -1,12 +1,27 @@
 project String_Tool is
-	for Source_Dirs use ("src");
+	-- External Variables
+	type Mode_Type is ("dynamic", "static");
+	Mode : Mode_Type := external ("mode", "dynamic");
+
+	type Debug_Type is ("true", "false");
+	Debug : Debug_Type := external ("debug", "false");
+
+	-- Base Build Config
+	Base_Source_Dirs := ("src");
+
 	for Object_Dir use "obj";
 	for Main use ("string_tool.adb");
 	for Exec_Dir use ".";
 
-	type Mode_Type is ("dynamic", "static");
-	Mode : Mode_Type := external ("mode", "dynamic");
+	case Debug is
+		when "true" =>
+			for Source_Dirs use Base_Source_Dirs & ("src/debug");
+		when "false" =>
+			for Source_Dirs use Base_Source_Dirs & ("src/release");
+	end case;
 
+
+	-- Component Configuration
 	package Builder is
 		case Mode is
 			when "dynamic" =>
@@ -17,7 +32,7 @@ project String_Tool is
 	end Builder;
 
 	package Compiler is
-		Common_Switches := ("-gnatwa", "-gnatyabCefiklmnprt", "-gnatVa", "-O2", "-gnat2022");
+		Common_Switches := ("-gnatwa", "-gnatyabCefiklmnprt", "-gnatVa", "-O2", "-gnat2022", "-gnatX");
 
 		case Mode is
 			when "dynamic" =>

@@ -37,8 +37,6 @@ package body Bank_Files is
 							"[Warning] End of file reached without finding Meta Header.");
 					end if;
 
-					Metas (M).Num_Entries := 0;
-						-- Ensure that Read_Entries doesn't try to process this
 					exit Read_Meta;
 				end if;
 

@@ -16,8 +16,7 @@ package body String_Display is
 	Decode_UTF_8 : constant := 244; -- Requires Obfuscator
 	Decode_UTF_16LE : constant := 240; -- No Obfuscator
 
-	-- Print strings
-	-- Iterate over Entry List Array
+	-- Print strings, given Entries, Hashes, and File Data
 	procedure Print_Strings (
 		Entries : Entry_Array;
 		Hashes : Hash_Array;

@@ -19,6 +19,8 @@ package Bank_Files is
 		Read => Read_Bank_Header_Type;
 
 	-- Stores information about one or more Entries
+	-- Note: Num_Entries and Loop_Count are intentionally set to 0
+	-- in order to avoid reading unitialised memory if Meta reading fails.
 	type Meta_Header_Type is record
 		Offset_Entry : Unsigned_64; -- 0 .. 7, needs local processing
 		Num_Entries : Unsigned_32 := 0; -- 8 .. B
